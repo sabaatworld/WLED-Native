@@ -225,10 +225,22 @@ Verification:
 Execution log:
 
 Actions taken:
+- Created `native/arduino_compat/` directory.
+- Implemented `Arduino.h`, `WString.h`, `WString.cpp`, `Print.h`, `Print.cpp`, `Stream.h`, `IPAddress.h`, `IPAddress.cpp` mimicking ESP/Arduino interfaces.
+- Implemented time functions `millis()`, `micros()`, `delay()`, `yield()`, and math functions `map()`, `constrain()`, `random()`.
+- Added mock RAM functions `d_malloc`, `p_malloc`, `p_free`, `p_realloc`, and `getFreeHeap()` based on standard `malloc`/`free`.
+- Added `native/tests/test_arduino_compat.cpp` with unit tests for `String`, `Print`, `IPAddress`, and math functions.
+- Updated `CMakeLists.txt` to compile `arduino_compat` as a library and link tests.
 
 Discrepancies or deviations:
+- Implemented `String` as a subclass of `std::string` for simplicity and performance instead of an exact 1:1 Arduino `String` class re-implementation.
+- Ignored memory tracking features (`getFreeHeap`) returning dummy values since desktop systems use virtual memory.
+- `Print::printNumber` logic from Arduino was slightly adapted to compile correctly without pulling in the entire Arduino core.
 
 Key decisions and reasoning:
+- Built the Arduino compatibility layer as narrow as possible, relying heavily on C++ Standard Library (`std::string`, `<chrono>`) to implement Arduino concepts on host OS efficiently.
+- Isolated all compatibility layers in a static library linked only when native mode is on.
+- Ensured C++17 was the system standard across targets.
 
 ## Task 4: Port Filesystem And Configuration Storage
 
@@ -265,10 +277,18 @@ Verification:
 Execution log:
 
 Actions taken:
+- Implemented a native `WLED_FS` file system facade using C++17 `<filesystem>` mapping file names correctly.
+- Mapped `FS` interface mimicking Arduino's `LittleFS` usage covering file write/read logic using C++ standard headers like `<iostream>`, `fopen`, `fread`, etc.
+- Covered directory checking inside config folder.
+- Configured CMake properly to fix std::filesystem linkage across macOS instances by ensuring C++17 is targeted and standard requirement is set.
+- Developed comprehensive tests testing file/folder persistence via `native/tests/test_fs.cpp`.
 
 Discrepancies or deviations:
+- Did not implement ESP32-specific partition validation or SPIFFS metadata checks. The abstraction behaves as standard folder under OS.
 
 Key decisions and reasoning:
+- Reused `<filesystem>` combined with standard `FILE*` objects. Leveraging POSIX/Windows IO keeps memory efficiency without loading OS objects via heavy frameworks.
+- Bound file resolution to prepend configured directory (`_basePath`) directly ensuring it mimics sandboxing within config folder correctly.
 
 ## Task 5: Port Runtime Lifecycle, Loop, Logging, And Shutdown
 
