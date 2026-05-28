@@ -16,6 +16,9 @@ Always reference these instructions - including coding guidelines in `docs/` - f
 | `npm run build` | Build web UI into `wled00/html_*.h` / `wled00/js_*.h` | 30s |
 | `npm test` | Run test suite (Node.js built-in `node --test`) | 2 min |
 | `npm run dev` | Watch mode — auto-rebuilds web UI on changes | continuous |
+| `npm run native:build` | Configure and build the native skeleton in `build/native/` | 30s |
+| `npm run native:test` | Build native skeleton and run CTest smoke checks | 30s |
+| `npm run native:run -- --help` | Run the native skeleton CLI through npm | 30s |
 | `pio run -e esp32dev` | Build firmware (ESP32, most common target) | 5 min |
 | `pio run -e nodemcuv2` | Build firmware (ESP8266) | 5 min |
 
@@ -59,6 +62,8 @@ usermods/            # Community usermods (each has library.json + .cpp/.h)
 platformio.ini       # Build configuration and environments
 pio-scripts/         # PlatformIO build scripts (Python)
 tools/               # Node.js build tools (cdata.js) and tests
+native/              # Native macOS/Linux entry points and tests
+scripts/             # Native build/run/test helper scripts
 docs/                # Coding convention docs
 .github/workflows/   # CI/CD (GitHub Actions)
 ```
@@ -69,6 +74,18 @@ The repository is being planned for a native macOS/Linux port that drops ESP32/E
 hardware support while preserving every feature that can reasonably run on a host OS.
 For any native-port task, treat `Native-Port-Plan.md` as the migration source of truth
 and update it in the same change as the code.
+
+Current native skeleton commands:
+
+```sh
+scripts/native-build.sh
+scripts/native-test.sh
+scripts/native-run.sh --help
+```
+
+The npm aliases are `npm run native:build`, `npm run native:test`, and
+`npm run native:run -- --help`. Native build products belong under `build/native/`
+and must not be committed.
 
 ### Native Port Task Hook
 

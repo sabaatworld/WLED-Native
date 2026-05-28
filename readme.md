@@ -14,6 +14,12 @@
 
 A fast and feature-rich implementation of an ESP32 and ESP8266 webserver to control NeoPixel (WS2812B, WS2811, SK6812) LEDs or also SPI based chipsets like the WS2801 and APA102!
 
+> Native macOS/Linux porting is in progress in this repository. Native WLED keeps the
+> WLED name and API compatibility goals, but intentionally removes ESP32/ESP8266
+> firmware-only hardware paths. See [docs/native-porting.md](docs/native-porting.md)
+> and [Native-Port-Plan.md](Native-Port-Plan.md) for scope, feature disposition, and
+> developer commands.
+
 Originally created by [Aircoookie](https://github.com/Aircoookie)
 
 ## ⚙️ Features
@@ -84,4 +90,3 @@ If you are prone to photosensitive epilepsy, we recommended you do **not** use t
 If you still want to try, don't use strobe, lighting or noise modes or high effect speed settings.
 
 As per the EUPL license, I assume no liability for any damage to you or any other person or equipment.  
-

@@ -94,6 +94,8 @@ Actions taken:
 - Added Home Assistant compatibility, stable identity, default config behavior, and third-party dependency policy to the plan.
 - Added a research baseline with current Home Assistant, WLED API/protocol, XDG, Apple filesystem, and candidate dependency references.
 - Added repo-level Codex hook guardrails for native-port prompts and stop-time plan checks.
+- Created `docs/native-porting.md` as the living native scope and feature-matrix document.
+- Added a README native-port notice linking to the native docs and this migration plan.
 
 Discrepancies or deviations:
 - Earlier plan text treated preview/network output as the first output milestone. The answered scope rejects additional browser preview work and does not require physical LED output from day one.
@@ -109,6 +111,8 @@ Key decisions and reasoning:
 
 Docs updates:
 - `AGENTS.md` documents the native-port workflow, the requirement to update this plan with each native-port change, and the repo-level Codex hooks.
+- `docs/native-porting.md` documents native-only support, user-visible ESP hardware removals, first runnable experience, feature dispositions, CLI placeholders, and dependency policy.
+- `README.md` now points contributors to the native migration scope before they assume the repository is firmware-only.
 
 Verification performed:
 - `npm test` passed with 16 tests, 0 failures after the plan scope update.
@@ -154,10 +158,44 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added a root `CMakeLists.txt` that builds a `wled-native` executable under `build/native/`.
+- Added `native/main.cpp` with `--help`, `--version`, `--config-dir`, `--host`, `--port`, and `--log-level` CLI placeholder handling.
+- Added `scripts/native-build.sh`, `scripts/native-run.sh`, and `scripts/native-test.sh`.
+- Added a CTest smoke test through `native/tests/cli-smoke.sh` and verified the red/green path against the missing then present executable.
+- Added npm aliases: `native:build`, `native:run`, and `native:test`.
+- Added `build/` to `.gitignore` so native build products are not committed.
+- Added native skeleton CI coverage to `.github/workflows/wled-ci.yml` while keeping the existing firmware reusable workflow.
 
 Discrepancies or deviations:
+- Added `scripts/native-test.sh` and a CTest smoke test in addition to the requested `scripts/native-run.sh --help` verification so the CLI contract can be checked automatically.
+- Did not add any third-party native runtime library in this task; the dependency manifest records candidate libraries as not selected.
 
 Key decisions and reasoning:
+- Chose CMake because it is the common cross-platform entry point for native C++ on macOS/Linux and keeps native build artifacts separate from PlatformIO.
+- Kept the first executable isolated in `native/` so firmware sources and PlatformIO behavior remain unchanged.
+- Kept CLI options as placeholders to stabilize scripts and documentation before runtime, config, server, and logging code exist.
+- Used only the C++ standard library for the skeleton to avoid committing to HTTP/WebSocket/audio/Zeroconf dependencies before adapter boundaries are designed.
+- Added native checks to `wled-ci.yml` rather than replacing firmware CI because PlatformIO remains the validation path until native runtime coverage is broader.
+
+Docs updates:
+- `docs/native-porting.md` documents native commands, CLI placeholders, feature matrix, and dependency manifest.
+- `README.md` links to the native migration docs.
+- `AGENTS.md` lists the native npm/script commands and new project directories.
+
+Verification performed:
+- Initial native CLI smoke test failed because `build/native/wled-native` did not exist, confirming the test covered the missing skeleton.
+- `npm ci` completed successfully.
+- `npm run build` completed successfully and regenerated ignored web headers.
+- `npm test` passed with 16 tests, 0 failures.
+- `scripts/native-build.sh` completed successfully.
+- `scripts/native-run.sh --help` printed the native runtime help text successfully.
+- `scripts/native-test.sh` passed with 1 CTest smoke test.
+- `pio run -e esp32dev` and `platformio run -e esp32dev` could not be run because neither `pio` nor `platformio` is installed in this environment.
+
+Newly discovered tasks or risks:
+- The native version string is currently duplicated in `CMakeLists.txt` and `package.json`; a later task should centralize version metadata before releases.
+- The native CI job uses the runner-provided CMake toolchain; pinning or documenting a minimum CMake package may be needed if CI environments change.
+- Local firmware validation still requires installing PlatformIO in the development environment.
 
 ## Task 3: Introduce The Native Compatibility Layer
 

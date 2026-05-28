@@ -6,6 +6,39 @@ on:
       - '*'
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   wled_build:
+    name: Build firmware matrix
     uses: ./.github/workflows/build.yml
+
+  native_build:
+    name: Build native skeleton
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Run Node.js tests
+        run: npm test
+
+      - name: Build web UI
+        run: npm run build
+
+      - name: Build native executable
+        run: scripts/native-build.sh
+
+      - name: Check native help
+        run: scripts/native-run.sh --help
