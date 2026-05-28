@@ -135,7 +135,6 @@ Dependency-expansion rule:
 - If baseline work reveals missing migration prerequisites, expand this task to update the affected original docs, build scripts, or tests rather than postponing decisions into an undocumented side plan.
 
 Implementation notes:
-- Keep `wled00-backup/` ignored and clearly marked reference-only to avoid accidental compilation or packaging.
 - Keep original `wled00/` as the only source tree that future tasks compile and run.
 - Do not recreate top-level `native/` for host product code; use `wled00/` for WLED runtime/source edits and shared repo locations only for build scripts, tests, CI, or packaging glue.
 - Capture current generated-header behavior so later web UI changes continue to rebuild through the existing tooling.

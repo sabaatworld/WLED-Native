@@ -74,8 +74,7 @@ changes, and discovered risks in `Native-Port-Plan.md`.
 
 Native migration work must modify the original `wled00/` source tree in place. Do not
 create or grow a parallel top-level `native/` product implementation. The existing
-recursive `wled00-backup/` snapshot is for reference and recovery only; keep it ignored
-or clearly marked, never refresh it into an alternate source tree, never
+recursive `wled00-backup/` snapshot is for reference and recovery only; never
 compile/serve/test/package it as product code, and remove or ignore it once no longer
 needed.
 
