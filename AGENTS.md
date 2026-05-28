@@ -65,10 +65,26 @@ docs/                # Coding convention docs
 
 ## Native Porting Workflow (macOS / Linux)
 
-The repository is being planned for a native macOS/Linux port that drops ESP32/ESP8266
+The repository is being planned for a native macOS/Linux conversion that drops ESP32/ESP8266
 hardware support while preserving every feature that can reasonably run on a host OS.
 For any native-port task, treat `Native-Port-Plan.md` as the migration source of truth
-and update it in the same change as the code.
+and update it in the same change as the code. Do not create `docs/native-porting.md`,
+`docs/native-running.md`, or a separate native status document; keep task status, scope
+changes, and discovered risks in `Native-Port-Plan.md`.
+
+Native migration work must modify the original `wled00/` source tree in place. Do not
+create or grow a parallel top-level `native/` product implementation. The existing
+recursive `wled00-backup/` snapshot is for reference and recovery only; keep it ignored
+or clearly marked, never refresh it into an alternate source tree, never
+compile/serve/test/package it as product code, and remove or ignore it once no longer
+needed.
+
+Prefer direct source edits in `wled00/` over broad Arduino/ESP API-emulation shims.
+Small shared utilities under `wled00/` are acceptable when they avoid repeated host
+logic, but they must support the original WLED files rather than hide a separate port.
+If a native task needs additional dependencies to keep a WLED feature functional, expand
+that task to update the necessary original source, tests, build rules, or docs instead
+of dropping the feature or deferring it to an undocumented side plan.
 
 ### Native Port Task Hook
 
@@ -77,13 +93,16 @@ Before finishing any native-port task:
 1. Update the relevant task section in `Native-Port-Plan.md`.
 2. Record actions taken, discrepancies or deviations from the plan, and the reasoning
    for key decisions.
-3. Add newly discovered tasks or risks to the plan before continuing.
-4. Update `README.md`, `AGENTS.md`, and relevant files in `docs/` when commands,
+3. Add newly discovered tasks or risks to the plan before continuing; keep native status
+   in `Native-Port-Plan.md` rather than a separate document.
+4. Update `readme.md`, `AGENTS.md`, and relevant files in `docs/` when commands,
    supported platforms, configuration paths, build systems, or user-visible behavior
    changes.
-5. Run the meaningful compile/test loop available for the current migration
+5. Update existing tests as needed and add basic new tests through the normal repository
+   test flow rather than creating ignored native-only side tests.
+6. Run the meaningful compile/test loop available for the current migration
    stage, fix failures, then run the broader native validation once it exists.
-6. For web page or browser-visible issues, run browser testing against the local
+7. For web page or browser-visible issues, run browser testing against the local
    native server or `wled00/data` test server. Check page load, console errors,
    navigation, JSON/API interactions, WebSocket updates, responsive layout, and
    any changed settings pages.
