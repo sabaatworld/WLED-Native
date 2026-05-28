@@ -16,8 +16,10 @@ A fast and feature-rich implementation of an ESP32 and ESP8266 webserver to cont
 
 > Native macOS/Linux porting is in progress in this repository. Native WLED keeps the
 > WLED name and API compatibility goals, but intentionally removes ESP32/ESP8266
-> firmware-only hardware paths. See [docs/native-porting.md](docs/native-porting.md)
-> and [Native-Port-Plan.md](Native-Port-Plan.md) for scope, feature disposition, and
+> firmware-only hardware paths. The current native runtime serves the existing browser
+> assets on localhost and renders to an internal null-backed buffer while the full port
+> continues. See [docs/native-porting.md](docs/native-porting.md) and
+> [Native-Port-Plan.md](Native-Port-Plan.md) for scope, feature disposition, and
 > developer commands.
 
 Originally created by [Aircoookie](https://github.com/Aircoookie)

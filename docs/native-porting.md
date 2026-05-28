@@ -18,9 +18,9 @@ ESP watchdog/brownout handling, or OTA firmware update paths.
 
 The first runnable native experience is a command-line executable named `wled-native`.
 It now starts a native runtime loop, logs startup/shutdown state to stdout, exits cleanly
-on SIGINT/SIGTERM, and persists a generated MAC-compatible identity in the native config
-root. Later tasks will attach the web server, JSON API, WebSocket updates, and output
-backends.
+on SIGINT/SIGTERM, persists a generated MAC-compatible identity in the native config
+root, serves the existing `wled00/data` web assets through a native localhost HTTP
+server, and publishes a memory-backed render buffer through a null output backend.
 
 ## Native Developer Commands
 
@@ -71,6 +71,45 @@ The runtime returns exit code `0` for clean shutdown and `75` for a native resta
 request. The restart code is an internal contract for later service wrappers; the
 current CLI does not restart itself.
 
+## Native HTTP And WebSocket Layer
+
+The first native HTTP adapter is dependency-free and intentionally narrow. It binds to
+`127.0.0.1:8080` by default, or to `--host` and `--port` when specified. LAN exposure
+therefore requires an explicit host such as `--host 0.0.0.0`.
+
+The adapter currently serves:
+
+- Existing browser assets from `wled00/data`, including `/`, `/settings`, `/edit`,
+  `/liveview`, `/liveview2D`, static JS/CSS/image routes, and 404 handling.
+- Minimal `/json`, `/json/state`, `/json/info`, `/json/si`, `/version`, `/uptime`, and
+  `/freeheap` responses for the native milestone.
+- Minimal effect, palette, palette-preview, and settings-script compatibility routes:
+  `/json/effects`, `/json/fxdata`, `/json/palettes`, `/json/palx`, and
+  `/settings/s.js`.
+- `/ws` WebSocket handshakes, initial state/info delivery, `"p"` heartbeat replies,
+  JSON state updates for `on` and `bri`, verbose `{"v":true}` state/info responses,
+  and `{"lv":true}` live-view frames sourced from the normal native render buffer.
+
+Firmware OTA and bootloader update routes are not supported by native WLED. `/update`
+returns `410 Gone`, and `/upload` returns `501 Not Implemented` until file-editor upload
+semantics are deliberately ported.
+
+The adapter does not yet reuse `wled00/wled_server.cpp`, `wled00/json.cpp`, or
+`wled00/ws.cpp`. It is a host boundary that keeps browser/API bring-up testable while
+later tasks remove ESP-only coupling from the existing handlers.
+
+## Native Render Buffer And Output
+
+The first output backend is a memory render buffer plus a null backend. The render
+buffer stores RGBW pixels and CCT metadata, can encode common RGB/GRB/RGBW orders,
+estimates current at 20 mA per fully-on channel, and supplies live-view data to the
+native WebSocket adapter. The null backend records the last frame and frame count for
+tests, but it intentionally does not drive physical LEDs.
+
+Host-native physical output remains future work. USB serial, USB DMX, SPI, HID, vendor
+SDKs, or network forwarding backends should attach behind the narrow native output
+interface and must avoid blocking the render loop.
+
 ## Native Network Layer
 
 The first native network adapter is intentionally small:
@@ -95,7 +134,7 @@ The first native network adapter is intentionally small:
 | Home Assistant discovery and identity | Keep | First useful native milestone release gate; persist a MAC-compatible instance ID. |
 | Config files (`cfg.json`, `wsec.json`, `presets.json`, palettes, ledmaps) | Replace storage backend | Keep file names and JSON semantics under the native config root. |
 | First-run config | Replace initialization | Use WLED defaults; do not auto-import ESP exports. |
-| LED output on first milestone | Replace with null backend | Internal render buffer plus no-op/null output comes first. |
+| LED output on first milestone | Replace with null backend | Internal RGBW/CCT render buffer plus no-op/null output is active. |
 | Additional browser preview | Remove from scope | Keep only existing peek/live-view behavior backed by the render buffer. |
 | ESP GPIO/RMT/I2S/LEDC LED drivers | Remove | Native host process will not drive ESP hardware paths. |
 | Hardware IR receivers | Remove | Hardware receiver support is ESP-specific. |
@@ -123,14 +162,14 @@ The runtime executable accepts these options now so scripts and docs stabilize e
 - `--duration-ms <ms>`
 - `--max-loops <count>`
 
-`--host` and `--port` remain server placeholders until the HTTP task. `--duration-ms`
-and `--max-loops` are development/test controls for exercising the runtime loop without
-leaving a long-running process active.
+`--duration-ms` and `--max-loops` are development/test controls for exercising the
+runtime loop without leaving a long-running process active.
 
 ## Dependency Manifest
 
-No third-party native runtime library is introduced by the skeleton. The current native
-build uses only the C++ standard library plus CMake/CTest as build tooling.
+No third-party native runtime library is introduced by the skeleton or the first
+HTTP/WebSocket/output slice. The current native build uses only the C++ standard library,
+POSIX host APIs, and CMake/CTest as build tooling.
 
 Candidate future dependencies must be recorded here before use:
 

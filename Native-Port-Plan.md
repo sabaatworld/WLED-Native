@@ -455,10 +455,40 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added `native/http/NativeHttpServer.h` and `native/http/NativeHttpServer.cpp`.
+- Implemented a dependency-free POSIX localhost HTTP adapter with route handling for `/`, `/settings`, settings subpages, `/edit`, `/liveview`, `/liveview2D`, static `wled00/data` assets, `/json`, `/json/state`, `/json/info`, `/json/si`, `/json/effects`, `/json/fxdata`, `/json/palettes`, `/json/palx`, `/settings/s.js`, `/version`, `/uptime`, and `/freeheap`.
+- Implemented native `/ws` WebSocket handshake support, SHA-1/base64 accept-key generation, initial state/info delivery, `"p"` heartbeat replies, JSON state updates for `on` and `bri`, verbose `{"v":true}` replies, and `{"lv":true}` live-view binary frames sourced from the normal native render buffer.
+- Connected `NativeRuntime` startup to the HTTP adapter using `--host`, `--port`, the persisted native identity, and the source-tree `wled00/data` asset root.
+- Added native HTTP tests for static asset routes, minimal JSON state/info/effect/palette/settings-script behavior, JSON POST state updates, OTA/upload route disposition, and WebSocket state/info behavior.
 
 Discrepancies or deviations:
+- This is the first native adapter slice, not the full `ESPAsyncWebServer` compatibility layer. It does not yet reuse `wled00/wled_server.cpp`, `wled00/json.cpp`, or `wled00/ws.cpp`.
+- JSON compatibility is intentionally minimal in this slice: `on`, `bri`, state/info shape, native MAC identity, and live-view plumbing are covered, while full preset, playlist, segment, palette, effect, config, upload/list editor, and settings mutation behavior remains unported.
+- `/update` now returns `410 Gone` for native firmware OTA removal, and `/upload` returns `501 Not Implemented` until file-editor upload semantics are deliberately ported.
+- Browser testing covered first-page loading and console health for the initial native UI route. The deeper interaction matrix listed in the task remains future work because the existing browser UI still expects many full WLED JSON/config behaviors that are not ported in this slice.
 
 Key decisions and reasoning:
+- Avoided a third-party HTTP/WebSocket dependency for this milestone so the native build remains self-contained while the project decides whether to use Boost.Beast, libwebsockets, or another adapter later.
+- Bound to `127.0.0.1` by default and preserved explicit LAN exposure through `--host 0.0.0.0`, matching the task safety requirement.
+- Kept the server behind `native/http/` so later work can replace the adapter internals or route to the existing WLED handlers without coupling core firmware files directly to host socket code.
+- Preserved Home Assistant's most important WebSocket contract slice by sending state/info on connect and accepting JSON state updates over `/ws`.
+
+Docs updates:
+- `docs/native-porting.md` documents the native HTTP/WebSocket adapter, supported routes, unsupported OTA/upload behavior, and current compatibility limits.
+- `README.md` now notes that the native runtime serves browser assets on localhost and renders to an internal null-backed buffer.
+
+Verification performed:
+- Native HTTP tests were first added against missing `native/http/NativeHttpServer.h` and failed as expected.
+- `ctest --test-dir build/native --output-on-failure -R native_http` passed when run with localhost socket permission.
+- Browser smoke testing loaded `http://127.0.0.1:18080/` from the native runtime with Playwright fallback because the Browser plugin is not available in this session. Page identity, non-blank rendering, settings-route navigation, desktop and mobile screenshots, and console health passed with no console errors and no failed HTTP responses.
+- Final validation ran `npm ci`, `npm run build`, `npm test`, `scripts/native-run.sh --help`, `ctest --test-dir build/native --output-on-failure -E 'native_network|native_http'`, `ctest --test-dir build/native --output-on-failure -R 'native_http|native_output'` with socket permission, and `git diff --check`.
+- A final full `scripts/native-test.sh` rerun could not be completed because the sandbox approval review timed out twice; the full native suite had passed earlier with socket permission before the later compatibility-route extension, and the affected `native_http`/`native_output` tests passed after that extension.
+
+Newly discovered tasks or risks:
+- Full JSON/API parity needs a follow-up adapter pass or reuse of the existing WLED handlers after ESP-only dependencies are separated.
+- Segments and presets still show loading placeholders because full segment, preset, playlist, and config behavior is not yet ported.
+- File editor upload/list flows are not complete; `/upload` is explicitly unsupported in this slice.
+- If a third-party HTTP/WebSocket library is selected later, record its license, packaging impact, and adapter boundary before replacing this adapter.
 
 ## Task 8: Port Render Buffer And Optional Native Output Backends
 
@@ -494,10 +524,37 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added `native/output/RenderBuffer.h` and `native/output/RenderBuffer.cpp`.
+- Implemented `NativeRenderBuffer` with RGBW pixel storage, CCT metadata retention, clear/set/get behavior, common RGB/GRB/BRG/RGBW/GRBW encoding, visible-pixel checks, and current estimation.
+- Implemented `NativeOutputBackend` and `NativeNullOutputBackend` as the first host output boundary. The null backend records frame count and the most recent frame for tests without driving physical LEDs.
+- Connected `NativeRuntime::loopOnce()` to publish a deterministic memory-backed frame through the null backend.
+- Connected native WebSocket live-view frames to the normal render buffer instead of adding a separate preview backend.
+- Added native output tests for RGBW/CCT storage, color-order encoding, out-of-range pixel safety, current estimation, and null backend frame capture.
 
 Discrepancies or deviations:
+- This slice does not port `Bus`, `BusManager`, `bus_wrapper.h`, `FX_fcn.cpp`, or existing WLED effects yet.
+- Current-limit behavior is represented by a simple 20 mA per fully-on channel estimate in the native render buffer, not the full firmware current-limiting model.
+- The runtime frame writer is a deterministic bring-up frame, not the WLED effects engine. Effects writing into the render buffer remains future task 9 work.
+- Native settings UI changes for host-irrelevant pin selection were not made in this slice because the browser settings pages still depend on broader JSON/config parity.
 
 Key decisions and reasoning:
+- Kept physical output as a no-op/null backend because first-milestone native WLED should decouple state/effects/API work from host hardware output decisions.
+- Preserved RGBW and CCT fields in the render buffer even though the live-view downmix is RGB, so later output backends and settings/API work do not lose channel metadata.
+- Used a narrow backend interface with `begin()` and `show()` so future USB serial, USB DMX, SPI, HID, vendor SDK, or network forwarding outputs can attach without blocking the runtime loop directly.
+
+Docs updates:
+- `docs/native-porting.md` documents the memory render buffer, null backend, current-estimation assumption, live-view source, and future physical-output boundary.
+- `README.md` mentions the current null-backed render-buffer milestone.
+
+Verification performed:
+- Native output tests were added before implementation; the first native build failed on missing `native/http/NativeHttpServer.h`, confirming the new native adapter/output headers were absent.
+- `cmake --build build/native --target test_output && build/native/test_output` passed after implementation.
+- Full native CTest verification passed with localhost socket permission before the final compatibility-route extension; after that extension, `native_output`, `native_http`, and the non-socket CTest subset passed.
+
+Newly discovered tasks or risks:
+- Full `BusManager` and effect-engine integration remains the next major output milestone before claims about effect parity can be made.
+- Host output backends must use queues or throttling before any slow external device or network writer is added.
+- Browser live-view is wired to the render buffer, but meaningful visual output depends on later effect/state integration.
 
 ## Task 9: Bring Up Core State, Effects, Presets, Playlists, And Timers
 

@@ -1,8 +1,12 @@
 #pragma once
 
+#include "../http/NativeHttpServer.h"
+#include "../output/RenderBuffer.h"
+
 #include <atomic>
 #include <cstdint>
 #include <iosfwd>
+#include <memory>
 #include <string>
 
 constexpr int WLED_NATIVE_EXIT_OK = 0;
@@ -37,9 +41,13 @@ private:
   std::atomic<bool> _restartRequested{false};
   std::atomic<uint64_t> _loopIterations{0};
   uint64_t _startMs = 0;
+  NativeRenderBuffer _renderBuffer;
+  NativeNullOutputBackend _outputBackend;
+  std::unique_ptr<NativeHttpServer> _httpServer;
 
   void setup();
   void loopOnce();
+  void shutdown();
 };
 
 struct NativeCliResult {
