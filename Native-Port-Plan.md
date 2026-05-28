@@ -100,126 +100,90 @@ Remove these bundled usermods from the native product path because they depend o
 
 Removal rule: do not keep removed usermods as source examples, excluded build folders, disabled compatibility shells, or documentation promises in the native product. If a future contributor wants one back, it must be reintroduced as a host-compatible usermod with explicit host dependencies, tests, and documentation.
 
-## Plan Maintenance Rules For Every Task
+## Plan Maintenance Rules For Every Change
 
-Each task below is sequential and should leave WLED in a more functional state than before. Before finishing any task:
+This plan is one unified migration checklist. The sections below are accomplishment areas, not sequential tasks. Work can move across multiple areas in the same change as dependencies require, but every change should leave this file more accurate than before.
 
-1. Update that task's log in this file with actions taken, deviations, key decisions, verification performed, and newly discovered tasks or risks.
-2. If execution reveals a missing dependency that blocks a host-feasible feature, expand the current task to modify additional original WLED files, shared utilities, tests, or build rules. If the dependency is ESP/GPIO/peripheral-only, remove that source path instead of preserving it as a blocker, placeholder, or compatibility shell.
+Before finishing any native-port change:
+
+1. Update the relevant area log in this file with actions taken, deviations, key decisions, verification performed, and newly discovered tasks or risks.
+2. If execution reveals a missing dependency that blocks a host-feasible feature, expand the relevant area to modify additional original WLED files, shared utilities, tests, or build rules. If the dependency is ESP/GPIO/peripheral-only, remove that source path instead of preserving it as a blocker, placeholder, or compatibility shell.
 3. Update `readme.md`, `AGENTS.md`, `.github/` instructions, or other existing contributor docs only when commands, supported platforms, configuration paths, build systems, or user-visible behavior actually change. Do not create separate native-port status documents.
 4. Update original tests as needed and add basic new tests in the same normal test flow. If a new test runner is introduced, wire it into the repository scripts/CI so it does not become ignored side coverage.
-5. Run the meaningful validation loop available at that stage and record failures that are environmental, incomplete by design, or intentionally deferred.
+5. Run the meaningful validation loop available for the changed area and record failures that are environmental, incomplete by design, or intentionally deferred.
 
-## Task 1: Baseline, Existing Backup, Scope, And Test Inventory
+## Unified Migration Checklist
 
-Objective: establish a safe in-place migration baseline before code churn starts.
+- [x] Establish the in-place migration baseline, inventory tests/build outputs, and redirect contributor guidance back to this plan.
+- [x] Add a host build/run entry point that compiles original `wled00/` sources and exposes a stable CLI contract.
+- [ ] Make original WLED startup, timing, filesystem, configuration, identity, logging, and shutdown work on macOS/Linux.
+- [ ] Remove ESP-only hardware semantics, unsupported bundled usermods, misleading UI/API fields, and physical output drivers from the host product path.
+- [ ] Bring up the core light engine around the internal render buffer while preserving effects, presets, playlists, timers, and live-view compatibility.
+- [ ] Serve the existing browser UI, JSON API, and WebSocket API from the host process using original WLED handlers.
+- [ ] Replace WiFi/ETH assumptions with host networking, Zeroconf, realtime UDP protocols, and time services.
+- [ ] Preserve MQTT, Hue/Alexa-compatible behavior, the audioreactive usermod, the usermod harness, and only the kept bundled usermods.
+- [ ] Complete the repository transition to native CI, packaging, service helpers, install docs, and host-first contributor workflows.
 
-Scope:
-- Use the existing recursive `wled00-backup/` snapshot only for comparison and recovery during migration. It is reference-only and must not become a second port or be refreshed into an alternate source tree.
-- Confirm the branch migration goal: modify `wled00/` in place until it builds and runs as host WLED.
-- Inventory current tests, web build outputs, firmware build expectations, and any existing generated artifacts.
-- Record the feature matrix and first user-visible breaking changes in this file.
-- Remove wording that points to `docs/native-porting.md`, `docs/native-running.md`, or any separate native status file.
+## Already Accomplished
 
-Key files:
-- `Native-Port-Plan.md`
-- `wled00/`
-- `wled00-backup/` (existing reference-only snapshot)
-- `readme.md`
-- `AGENTS.md`
-- `package.json`
-- `tools/cdata-test.js`
-- `test/`
+### Baseline, scope, test inventory, and contributor guidance
 
-Dependency-expansion rule:
-- If baseline work reveals missing migration prerequisites, expand this task to update the affected original docs, build scripts, or tests rather than postponing decisions into an undocumented side plan.
+Status: complete for this phase.
 
-Implementation notes:
-- Keep original `wled00/` as the only source tree that future tasks compile and run.
-- Do not recreate top-level `native/` for host product code; use `wled00/` for WLED runtime/source edits and shared repo locations only for build scripts, tests, CI, or packaging glue.
-- Capture current generated-header behavior so later web UI changes continue to rebuild through the existing tooling.
+Completed work:
+- Confirmed the branch target remains in-place migration of `wled00/` and that `wled00-backup/` is present only as an ignored reference snapshot.
+- Inventoried the current automated test surface: `npm test` runs the Node.js test runner, `tools/cdata-test.js` validates web asset generation, `test/` only contained the PlatformIO README baseline before native task work, and generated web headers remain ignored artifacts under `wled00/`.
+- Added a native CLI smoke test entry under `test/native-cli.test.js` so the normal `npm test` flow now covers the host bootstrap path.
+- Updated contributor-facing docs (`readme.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.github/agent-build.instructions.md`) to point native-port work back to this plan and the new `scripts/native-*.sh` wrappers instead of any separate native status document.
 
-Tests and verification:
-- Run `npm test` as the current baseline.
-- Run `npm run build` if web tooling or asset generation documentation changes.
-- If PlatformIO is available, run `pio run -e esp32dev` before major source edits to capture the starting firmware state; if unavailable, record that limitation.
+Discrepancies or deviations:
+- The repository still contains PlatformIO firmware tooling and workflows because the baseline phase only established the inventory and native workflow entry points; removal remains part of the broader repository transition.
 
-Task log:
-- Actions taken:
-  - Confirmed the branch target remains in-place migration of `wled00/` and that `wled00-backup/` is present only as an ignored reference snapshot.
-  - Inventoried the current automated test surface: `npm test` runs the Node.js test runner, `tools/cdata-test.js` validates web asset generation, `test/` only contained the PlatformIO README baseline before native task work, and generated web headers remain ignored artifacts under `wled00/`.
-  - Added a native CLI smoke test entry under `test/native-cli.test.js` so the normal `npm test` flow now covers task 2's host bootstrap path.
-  - Updated contributor-facing docs (`readme.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.github/agent-build.instructions.md`) to point native-port work back to this plan and the new `scripts/native-*.sh` wrappers instead of any separate native status document.
-- Discrepancies or deviations:
-  - The repository still contains PlatformIO firmware tooling and workflows because task 1 only establishes the baseline; removal remains a later plan item after host replacements are expanded.
-- Key decisions and reasoning:
-  - Kept task 1 changes focused on inventory and documentation because the repo already did not reference `docs/native-porting.md` or `docs/native-running.md`; the missing baseline gap was explicit native workflow/test inventory rather than stale links.
-  - Reused the existing Node.js test runner for the new native smoke test so native validation enters the normal repository test flow immediately instead of creating an isolated side harness.
-- Verification performed:
-  - Ran `node --test test/native-cli.test.js` before implementation and confirmed failure because `scripts/native-run.sh` did not yet exist.
-  - Ran `npm ci`, `npm test`, and `npm run build` after the task 1/task 2 changes landed.
-  - Attempted `pio run -e esp32dev`, but `pio` is not installed in this environment (`command not found`), so firmware-baseline verification remains pending on a PlatformIO-capable machine.
-- Newly discovered tasks or risks:
-  - Host runtime work in task 3 will need a reusable way to expose the package version/build metadata to more of `wled00/` than the standalone bootstrap CLI currently touches.
+Key decisions and reasoning:
+- Kept this phase focused on inventory and documentation because the repo already did not reference `docs/native-porting.md` or `docs/native-running.md`; the missing baseline gap was explicit native workflow/test inventory rather than stale links.
+- Reused the existing Node.js test runner for the new native smoke test so native validation enters the normal repository test flow immediately instead of creating an isolated side harness.
 
-## Task 2: Host Build Entry Point For The Original `wled00` Tree
+Verification performed:
+- Ran `node --test test/native-cli.test.js` before implementation and confirmed failure because `scripts/native-run.sh` did not yet exist.
+- Ran `npm ci`, `npm test`, and `npm run build` after the baseline/bootstrap changes landed.
+- Attempted `pio run -e esp32dev`, but `pio` is not installed in this environment (`command not found`), so firmware-baseline verification remains pending on a PlatformIO-capable machine.
 
-Objective: introduce a host build/run path that compiles source from `wled00/` rather than a separate native application tree.
+Open risks / follow-up:
+- Host runtime work needs a reusable way to expose package version/build metadata to more of `wled00/` than the standalone bootstrap CLI currently touches.
 
-Scope:
-- Add a host build system such as CMake or another local build entry point that targets original `wled00` sources.
-- Add a minimal host executable entry point in or directly beside `wled00/` that reports WLED version/help and prepares to call WLED setup/loop code.
-- Add scripts such as `scripts/native-build.sh`, `scripts/native-run.sh`, and `scripts/native-test.sh` only as wrappers around the in-place `wled00` build.
-- Add `--help`, `--config-dir`, `--host`, `--port`, `--log-level`, and `--version` CLI handling early enough that later tasks use stable commands.
-- Keep Node web build/test working during this transition.
-- Record any chosen build dependency, license, packaging impact, and boundary in this file.
+### Host build/run entry point for the original `wled00` tree
 
-Key files:
-- `CMakeLists.txt` or selected host build files
-- `wled00/` build entry source, for example a host-specific main under `wled00/`
-- `scripts/native-build.sh`
-- `scripts/native-run.sh`
-- `scripts/native-test.sh`
-- `package.json`
-- `.github/workflows/`
-- `Native-Port-Plan.md`
+Status: complete for this phase.
 
-Dependency-expansion rule:
-- If the host entry point cannot compile without small foundational edits, expand this task to adjust the necessary original `wled00` includes, macros, or build guards. Do not create a separate source copy that avoids the original files.
+Completed work:
+- Added a root `CMakeLists.txt` that extracts the version from `package.json` and builds a `wled-native` executable from source files living under `wled00/`.
+- Added `wled00/wled_host_cli.h`, `wled00/wled_host_cli.cpp`, and `wled00/wled_host_main.cpp` as the first host-only bootstrap entry point for the original source tree.
+- Added `scripts/native-build.sh`, `scripts/native-run.sh`, and `scripts/native-test.sh` as thin wrappers around the in-place host build and CLI smoke path.
+- Added `native:build`, `native:run`, and `native:test` npm scripts so the host workflow is discoverable through the existing developer tooling.
 
-Implementation notes:
-- Build artifacts should go under ignored build directories such as `build/native/`, but source should remain in `wled00/` or shared repository build/script locations.
-- The executable may be named `wled-native` as a build artifact, but help/version output should identify the product as WLED.
+Discrepancies or deviations:
+- The bootstrap executable currently parses and reports CLI options but does not call `WLED::instance().setup()` / `loop()` yet; that work belongs to the runtime foundation area because the current `wled00` runtime still hard-depends on Arduino/ESP headers and lifecycle assumptions.
 
-Tests and verification:
-- Update `package.json` or existing scripts so host build smoke tests are part of the normal developer flow when available.
-- Add a basic CLI smoke test for `--help` and `--version`.
-- Run `npm test`, `npm run build`, `scripts/native-build.sh`, and `scripts/native-run.sh --help`.
+Key decisions and reasoning:
+- Used CMake because it is already available on macOS/Linux developer machines and can target original `wled00/` sources without introducing a second application tree.
+- Kept the first native compile target intentionally small so the host path now has a stable command-line contract (`--help`, `--version`, `--config-dir`, `--host`, `--port`, `--log-level`) before broader de-ESP runtime work begins.
+- Parsed the package version directly from `package.json` during CMake configure so the host CLI reports the same version string as the existing web build tooling without a new duplicate version file.
+- Chose CMake as a build-time-only dependency boundary for the host path; it adds no runtime dependency to the produced binary, and current packaging impact is limited to requiring CMake plus a C++17 compiler on developer/build machines.
 
-Task log:
-- Actions taken:
-  - Added a root `CMakeLists.txt` that extracts the version from `package.json` and builds a `wled-native` executable from source files living under `wled00/`.
-  - Added `wled00/wled_host_cli.h`, `wled00/wled_host_cli.cpp`, and `wled00/wled_host_main.cpp` as the first host-only bootstrap entry point for the original source tree.
-  - Added `scripts/native-build.sh`, `scripts/native-run.sh`, and `scripts/native-test.sh` as thin wrappers around the in-place host build and CLI smoke path.
-  - Added `native:build`, `native:run`, and `native:test` npm scripts so the host workflow is discoverable through the existing developer tooling.
-- Discrepancies or deviations:
-  - The bootstrap executable currently parses and reports CLI options but does not call `WLED::instance().setup()` / `loop()` yet; that work is intentionally deferred to task 3 because the current `wled00` runtime still hard-depends on Arduino/ESP headers and lifecycle assumptions.
-- Key decisions and reasoning:
-  - Used CMake because it is already available on macOS/Linux developer machines and can target original `wled00/` sources without introducing a second application tree.
-  - Kept the first native compile target intentionally small so task 2 establishes a stable command-line contract (`--help`, `--version`, `--config-dir`, `--host`, `--port`, `--log-level`) before broader de-ESP runtime work begins.
-  - Parsed the package version directly from `package.json` during CMake configure so the host CLI reports the same version string as the existing web build tooling without a new duplicate version file.
-  - Chose CMake as a build-time-only dependency boundary for the host path; it adds no runtime dependency to the produced binary, and current packaging impact is limited to requiring CMake plus a C++17 compiler on developer/build machines.
-- Verification performed:
-  - Added `test/native-cli.test.js` first, then confirmed the red failure before writing the host scaffold.
-  - Ran `node --test test/native-cli.test.js`, `npm test`, `npm run build`, `scripts/native-build.sh`, `scripts/native-run.sh --help`, and `scripts/native-test.sh` successfully after implementation.
-- Newly discovered tasks or risks:
-  - Task 3 needs a shared host-facing configuration/bootstrap layer so future native binaries, tests, and runtime code do not duplicate CLI parsing or config-root resolution logic.
+Verification performed:
+- Added `test/native-cli.test.js` first, then confirmed the red failure before writing the host scaffold.
+- Ran `node --test test/native-cli.test.js`, `npm test`, `npm run build`, `scripts/native-build.sh`, `scripts/native-run.sh --help`, and `scripts/native-test.sh` successfully after implementation.
 
-## Task 3: Directly De-ESP Foundation, Filesystem, Config, Identity, And Runtime
+Open risks / follow-up:
+- Future native binaries, tests, and runtime code should share one host-facing configuration/bootstrap layer so CLI parsing or config-root resolution logic does not get duplicated.
+
+## Migration Accomplishment Areas
+
+### Host runtime foundation, filesystem, configuration, identity, and process lifecycle
 
 Objective: make original WLED startup, timing, filesystem, configuration, identity, logging, and shutdown work on macOS/Linux.
 
-Scope:
+Things to accomplish:
 - Modify `wled00/wled.h`, `wled00/wled.cpp`, `wled00/wled_main.cpp`, `file.cpp`, `cfg.cpp`, `presets.cpp`, and related files so host builds use direct host implementations instead of ESP/Arduino facilities.
 - Replace ESP-only lifecycle assumptions with a host process lifecycle that still preserves WLED setup/loop ordering where behavior depends on it.
 - Provide host implementations for timing, sleeping, restart request semantics, logging, filesystem access, and memory diagnostics through small shared utilities only where repeated source edits would be worse.
@@ -241,7 +205,7 @@ Key files:
 - `test/`
 
 Dependency-expansion rule:
-- If startup/config work requires additional WLED globals, JSON helpers, or filesystem callers to change, expand this task to modify those original files. Do not skip configuration, presets, or identity because a helper is missing.
+- If startup/config work requires additional WLED globals, JSON helpers, or filesystem callers to change, expand this area to modify those original files. Do not skip configuration, presets, or identity because a helper is missing.
 
 Implementation notes:
 - Reject path traversal and absolute-path escapes when serving or writing files through WLED APIs.
@@ -254,18 +218,20 @@ Tests and verification:
 - Add basic tests for config root selection, default file creation, read/write/delete/list/copy behavior, path traversal rejection, persisted identity stability, and graceful shutdown/restart code.
 - Run host CLI/runtime tests through the repository test scripts, plus `npm test` and `npm run build` when relevant.
 
-Task log:
+Area log:
 - Actions taken:
 - Discrepancies or deviations:
 - Key decisions and reasoning:
 - Verification performed:
 - Newly discovered tasks or risks:
+  - A shared host-facing configuration/bootstrap layer is needed so runtime code, tests, and future binaries do not duplicate CLI parsing or config-root resolution logic.
+  - Package version/build metadata likely needs a reusable interface inside `wled00/`, not only the standalone bootstrap CLI.
 
-## Task 4: Remove ESP Hardware Semantics, Unsupported Usermods, UI/API Fields, And Output Drivers
+### ESP-only hardware removal, unsupported bundled usermods, UI/API cleanup, and physical output removal
 
-Objective: remove host-impossible ESP hardware paths immediately after the host runtime foundation so later porting work cannot depend on ESP fallbacks.
+Objective: remove host-impossible ESP hardware paths so later native work cannot depend on ESP fallbacks.
 
-Scope:
+Things to accomplish:
 - Remove ESP-only features from original code: WiFi AP/provisioning, ESP-NOW, OTA firmware/bootloader update, brownout/watchdog, flash/PSRAM reporting, GPIO pin validation, pin manager behavior that only protects ESP GPIOs, RMT/I2S/LEDC, HUB75, MY92xx, PWM/fan output paths, IR receiver GPIO, hardware DMX UART, ESP Ethernet boards, PlatformIO board settings, and ESP-specific reset/update logic.
 - Update settings pages and JSON/API info fields to remove ESP pin, board, flash, PSRAM, WiFi provisioning, AP, OTA, and physical-output controls. Keep only stable documented host values or compatibility fields with explicit host semantics.
 - Remove physical ESP LED output controls and bus/output configuration from host settings. Do not replace them with null, virtual, stub, preview, or browser-only outputs.
@@ -309,28 +275,28 @@ Tests and verification:
 - Native build must no longer depend on ESP Arduino headers, PlatformIO libraries, NeoPixelBus/RMT/I2S/LEDC/HUB75/MY92xx/PWM output libraries, or removed usermod dependencies for host runtime.
 - Run reference searches for ESP-only APIs and document intentional leftovers.
 
-Task log:
+Area log:
 - Actions taken:
-  - Plan update: moved ESP hardware cleanup from former Task 8 to Task 4, immediately after the host runtime foundation.
-  - Plan update: added unsupported bundled usermod removal to this task so hardware-only usermods cannot remain as native build/documentation baggage.
+  - Plan update: moved ESP hardware cleanup forward in the migration so it follows the host runtime foundation rather than remaining late cleanup.
+  - Plan update: added unsupported bundled usermod removal to this area so hardware-only usermods cannot remain as native build/documentation baggage.
 - Discrepancies or deviations:
-  - Earlier plan deferred cleanup until host equivalents were functional; this now conflicts with the native-only direction and has been replaced with early removal of ESP/GPIO/peripheral paths.
+  - Earlier plan versions deferred cleanup until host equivalents were functional; this now conflicts with the native-only direction and has been replaced with early removal of ESP/GPIO/peripheral paths.
 - Key decisions and reasoning:
-  - Remove physical output drivers, GPIO semantics, ESP board fields, and unsupported usermods before rendering/network/integration work so later tasks cannot accidentally preserve ESP-only abstractions.
+  - Remove physical output drivers, GPIO semantics, ESP board fields, and unsupported usermods before broader rendering/network/integration work so later changes cannot accidentally preserve ESP-only abstractions.
 - Verification performed:
-  - Reviewed task ordering and searched this plan for old late-cleanup and stub/null-output wording.
+  - Reviewed plan ordering and searched for old late-cleanup and stub/null-output wording.
 - Newly discovered tasks or risks:
 
-## Task 5: Render Buffer, Core Light Engine, Effects, Presets, Playlists, And Timers
+### Render buffer, core light engine, effects, presets, playlists, and timers
 
 Objective: bring up WLED's core light engine in the original source tree with the render buffer as application state, not as a physical/null/virtual output path.
 
-Scope:
+Things to accomplish:
 - Modify `wled00/bus_manager.*`, `bus_wrapper.h`, `FX*.cpp`, `FX*.h`, `colors.*`, `palettes.cpp`, `led.cpp`, `playlist.cpp`, `presets.cpp`, `json.cpp`, and related files so host systems render into WLED's internal frame/state buffer without ESP physical output buses.
 - Preserve segment rendering, color order, RGBW/CCT metadata where meaningful, transitions, presets, playlists, nightlight, timers, palettes, 1D effects, and 2D effects that can run without unavailable hardware. Keep `BusManager` only if it is slimmed to render-buffer/core-light-engine coordination; remove ESP bus subclasses and output-driver semantics.
 - Remove NeoPixelBus/RMT/I2S/LEDC/HUB75/MY92xx/PWM physical output dependencies from the host build. Do not add `BusNull`, virtual outputs, stub outputs, preview outputs, GPIO-backed outputs, or other interim output backends.
 - Keep the normal render buffer as the source for existing live-view/peek behavior; do not add a separate browser preview feature.
-- Keep network realtime protocols out of this task except where core state hooks are needed; Task 7 handles host networking/control protocols and must not reintroduce output buses.
+- Keep network realtime protocols out of this area except where core state hooks are needed; the host networking/control protocol work must not reintroduce output buses.
 
 Key files:
 - `wled00/bus_manager.cpp`
@@ -350,41 +316,41 @@ Key files:
 - `wled00/data/index.js` only if live-view semantics require UI adjustments
 
 Dependency-expansion rule:
-- If effect compilation reveals missing timers, random sources, palette storage, JSON state helpers, or render dependencies, expand this task to modify those original WLED files. Do not replace full host-feasible effects with permanent placeholders; remove only effects or code paths that are intrinsically tied to removed hardware.
+- If effect compilation reveals missing timers, random sources, palette storage, JSON state helpers, or render dependencies, expand this area to modify those original WLED files. Do not replace full host-feasible effects with permanent placeholders; remove only effects or code paths that are intrinsically tied to removed hardware.
 
 Implementation notes:
 - Treat compile failures in hot-path code as portability work, not reasons to drop effects.
 - Replace ESP-specific performance attributes with empty or compiler-appropriate host attributes where needed.
 - Preserve deterministic behavior for tests by adding injectable clock/random hooks only where needed and keeping production behavior WLED-compatible.
-- Do not plan future output backends in this task; this migration is focused on removing ESP-only outputs and preserving the host render state.
+- Do not plan future output backends in this area; this migration is focused on removing ESP-only outputs and preserving the host render state.
 
 Tests and verification:
 - Update original tests affected by effect/palette/config serialization changes.
 - Add basic host tests for color conversion, configured render length, color order, RGBW/CCT metadata, selected effects rendering non-empty frames into the render buffer, preset save/apply, playlist advancement, nightlight fade, and timer behavior.
 - Test that `/ws` live-view frames, when retained, read from the normal render buffer.
-- Run host build/tests plus `npm test`; run browser checks after Task 6 makes the server available.
+- Run host build/tests plus `npm test`; run browser checks once the server/API area is available.
 
-Task log:
+Area log:
 - Actions taken:
   - Plan update: removed memory/null/no-op output backend language and reframed the render buffer as core WLED application state.
 - Discrepancies or deviations:
-  - Earlier plan allowed a null output backend as a first milestone; this was removed because it could become an interim output architecture rather than native cleanup.
+  - Earlier plan versions allowed a null output backend as a first milestone; this was removed because it could become an interim output architecture rather than native cleanup.
 - Key decisions and reasoning:
   - Keep effects, presets, playlists, timers, segments, and live-view compatibility by rendering into the normal buffer, while deleting ESP bus/output subclasses instead of replacing them with virtual outputs.
 - Verification performed:
-  - Checked cross-task references so HTTP/browser validation now points to Task 6 and networking/control protocols point to Task 7.
+  - Checked cross-area references so HTTP/browser validation remains tied to the web/API area and networking/control protocols remain tied to the host networking area.
 - Newly discovered tasks or risks:
 
-## Task 6: HTTP Server, WebSocket Server, Web UI, And JSON API
+### HTTP server, WebSocket server, web UI, and JSON API
 
 Objective: serve the existing WLED browser UI and API from the host process using original WLED handlers as much as possible.
 
-Scope:
+Things to accomplish:
 - Modify `wled00/wled_server.cpp`, `ws.cpp`, `json.cpp`, `xml.cpp`, `set.cpp`, and related request/response code to use host HTTP/WebSocket primitives.
 - Replace `ESPAsyncWebServer`, `AsyncWebSocket`, `AsyncCallbackJsonWebHandler`, and response/request classes by editing original server code and introducing narrow host request/response utilities only where shared behavior is needed.
 - Serve existing `wled00/data/` assets or generated assets according to the selected build mode.
-- Preserve `/`, `/settings`, `/json`, `/json/state`, `/json/info`, `/json/si`, `/ws`, `/edit`, `/upload`, `/version`, `/uptime`, palette routes, live view routes, and static JS/CSS routes where applicable. Keep `/freeheap` only if Task 4 gives it documented host memory semantics; otherwise remove or replace it with a documented host diagnostics route.
-- Ensure OTA/bootloader update endpoints removed in Task 4 stay removed or report documented host package-update behavior; they must not imply ESP firmware flashing exists.
+- Preserve `/`, `/settings`, `/json`, `/json/state`, `/json/info`, `/json/si`, `/ws`, `/edit`, `/upload`, `/version`, `/uptime`, palette routes, live view routes, and static JS/CSS routes where applicable. Keep `/freeheap` only if the hardware-cleanup area gives it documented host memory semantics; otherwise remove or replace it with a documented host diagnostics route.
+- Ensure OTA/bootloader update endpoints removed by the hardware-cleanup area stay removed or report documented host package-update behavior; they must not imply ESP firmware flashing exists.
 - Bind to localhost by default and make LAN exposure explicit through `--host 0.0.0.0` or config.
 
 Key files:
@@ -400,7 +366,7 @@ Key files:
 - Host HTTP/WebSocket utility files under `wled00/` if needed
 
 Dependency-expansion rule:
-- If preserving a host-feasible route requires more state, filesystem, segment, preset, playlist, or render support, expand this task to wire those dependencies into the original handlers. Do not duplicate a simplified API elsewhere; remove routes only when Task 4 classified their behavior as ESP-only and document the breaking change.
+- If preserving a host-feasible route requires more state, filesystem, segment, preset, playlist, or render support, expand this area to wire those dependencies into the original handlers. Do not duplicate a simplified API elsewhere; remove routes only when the hardware-cleanup area classifies their behavior as ESP-only and document the breaking change.
 
 Implementation notes:
 - Preserve Home Assistant's WebSocket expectations: connect to `/ws`, receive state/info on connect and state changes, accept JSON state updates, and support verbose replies.
@@ -413,23 +379,23 @@ Tests and verification:
 - Browser smoke tests must cover page load, console errors, navigation, color controls, effect/palette changes, settings pages, upload/list editor paths, WebSocket updates, live-view if retained, and mobile-sized viewport smoke checks.
 - Run `npm run build`, `npm test`, host tests, and browser tests.
 
-Task log:
+Area log:
 - Actions taken:
 - Discrepancies or deviations:
 - Key decisions and reasoning:
 - Verification performed:
 - Newly discovered tasks or risks:
 
-## Task 7: Host Networking, Zeroconf, UDP Realtime Protocols, And Time
+### Host networking, Zeroconf, UDP realtime protocols, and time
 
 Objective: replace WiFi/ETH concepts with host networking while preserving WLED protocol behavior and Home Assistant discovery.
 
-Scope:
+Things to accomplish:
 - Modify original network-facing files to use host sockets, DNS lookup, multicast/broadcast, and local interface discovery.
 - Preserve NTP, node discovery, WLED sync, Hyperion/TPM2.net, E1.31, Art-Net, DDP, realtime UDP behavior, and network-driven state changes where host networking supports them.
-- Continue the Task 4 removal of WiFi setup/scanning/AP behavior by exposing host network status and clear UI/API semantics only where useful.
+- Continue the hardware-removal work for WiFi setup/scanning/AP behavior by exposing host network status and clear UI/API semantics only where useful.
 - Implement WLED-compatible Zeroconf/mDNS advertisement for `_wled._tcp.local.` with the HTTP port and `mac` TXT property.
-- Ensure the generated persisted identity from Task 3 matches discovery TXT and `/json/info.mac` across restarts.
+- Ensure the persisted identity from the host runtime foundation matches discovery TXT and `/json/info.mac` across restarts.
 
 Key files:
 - `wled00/src/dependencies/network/Network.*`
@@ -442,10 +408,10 @@ Key files:
 - Host networking utility files under `wled00/` if needed
 
 Dependency-expansion rule:
-- If protocol preservation requires changes in state handling, timers, JSON info, UI fields, or tests, expand this task to modify those original files. Do not remove IP control protocols just because their previous transport used ESP classes, and do not reintroduce output buses to preserve old physical-output behavior.
+- If protocol preservation requires changes in state handling, timers, JSON info, UI fields, or tests, expand this area to modify those original files. Do not remove IP control protocols just because their previous transport used ESP classes, and do not reintroduce output buses to preserve old physical-output behavior.
 
 Implementation notes:
-- AP mode and WiFi credential provisioning are ESP-only and should already be removed from host UI/API by Task 4; this task should not bring those controls back.
+- AP mode and WiFi credential provisioning are ESP-only and should already be removed from host UI/API by the hardware-removal area; this area should not bring those controls back.
 - Broadcast/multicast behavior must account for hosts with multiple network interfaces and local firewall restrictions.
 - Home Assistant compatibility should not depend on RSSI/channel/BSSID fields.
 
@@ -455,26 +421,26 @@ Tests and verification:
 - Manual or automated Home Assistant smoke test must confirm `_wled._tcp.local.` advertisement is visible, `mac` TXT equals `/json/info.mac`, `/json` and `/ws` work, and reconnecting after restart does not trigger a MAC mismatch.
 - Record firewall or sandbox limitations rather than weakening protocol behavior.
 
-Task log:
+Area log:
 - Actions taken:
 - Discrepancies or deviations:
 - Key decisions and reasoning:
 - Verification performed:
 - Newly discovered tasks or risks:
 
-## Task 8: MQTT, Hue, Alexa-Compatible Behavior, Audioreactive, And Kept Usermods
+### MQTT, Hue, Alexa-compatible behavior, audioreactive, and kept bundled usermods
 
 Objective: keep automation integrations, audio effects, the usermod harness, and only the host-compatible bundled usermods useful on host WLED.
 
-Scope:
-- Modify `wled00/mqtt.cpp`, `hue.cpp`, `alexa.cpp`, bundled dependency wrappers, and usermod manager code to run on host networking/runtime after Task 4 has removed ESP hardware semantics.
+Things to accomplish:
+- Modify `wled00/mqtt.cpp`, `hue.cpp`, `alexa.cpp`, bundled dependency wrappers, and usermod manager code to run on host networking/runtime after ESP hardware semantics are removed from the host product path.
 - Replace `AsyncMqttClient` with a host MQTT dependency or in-repo implementation while preserving topics, payload parsing, publishing, reconnect behavior, LWT-equivalent behavior, and usermod callbacks.
 - Port Hue polling and Alexa-compatible local discovery/control where feasible on host networking.
 - Modify `usermods/audioreactive/` to use the OS default microphone/audio input while preserving the existing audioreactive usermod data contract consumed by `FX.cpp`; remove ESP I2S/ADC microphone paths rather than wrapping them in host stubs.
 - Preserve FFT, AGC, peak detection, UDP audio sync, and no-microphone disabled/silent behavior using real host audio/input code and tests.
 - Preserve `Usermod`, `UsermodManager`, `REGISTER_USERMOD`, usermod config, JSON info/state hooks, MQTT hooks, UDP hooks, and overlay hooks.
 - Port only the usermods listed in the keep list in the bundled usermod disposition section. Do not keep removed usermods as disabled source examples, skipped build folders, compatibility shells, or documentation promises.
-- Update kept usermods that write pixels directly so they target the normal render-buffer/core-light-engine APIs after Task 5 removes physical bus/output semantics.
+- Update kept usermods that write pixels directly so they target the normal render-buffer/core-light-engine APIs once physical bus/output semantics are gone.
 
 Key files:
 - `wled00/mqtt.cpp`
@@ -490,13 +456,13 @@ Key files:
 - `usermods/readme.md`
 
 Dependency-expansion rule:
-- If integration or kept-usermod behavior needs additional network, audio, config, UI, JSON, or effect support, expand this task to modify those original files and tests. Do not drop MQTT, Hue/Alexa-compatible behavior, audioreactive data, or the usermod harness to avoid dependency work; remove only usermods that prove to be ESP/GPIO/peripheral-only after deeper review.
+- If integration or kept-usermod behavior needs additional network, audio, config, UI, JSON, or effect support, expand this area to modify those original files and tests. Do not drop MQTT, Hue/Alexa-compatible behavior, audioreactive data, or the usermod harness to avoid dependency work; remove only usermods that prove to be ESP/GPIO/peripheral-only after deeper review.
 
 Implementation notes:
 - Home Assistant's primary WLED integration remains JSON/WebSocket/Zeroconf; MQTT is useful but not a substitute for native WLED integration compatibility.
 - Document license/build impact for any selected MQTT/audio library in this plan before merging the dependency.
 - Native audio must degrade gracefully when no input device or microphone permission is available.
-- Hardware-only usermods are removed by Task 4; if any are rediscovered here, remove them immediately and update the disposition section rather than keeping them as excluded examples.
+- Hardware-only usermods are removed by the hardware-cleanup area; if any are rediscovered here, remove them immediately and update the disposition section rather than keeping them as excluded examples.
 
 Tests and verification:
 - Update original tests and add basic integration tests with a local MQTT broker for subscribe, command, publish, retain, LWT-equivalent behavior, and usermod callbacks.
@@ -504,23 +470,23 @@ Tests and verification:
 - Add tests for `setup`, `loop`, config read/write, JSON info/state, lookup behavior, removed-usermod absence, and at least one kept host-ready usermod registration path.
 - Manual tests cover Hue polling, Alexa-compatible discovery, microphone permission/no-device fallback, and browser UI settings accuracy where retained.
 
-Task log:
+Area log:
 - Actions taken:
-  - Plan update: changed this task from broad usermod classification to porting only the explicit keep-list after Task 4 removes unsupported usermods.
+  - Plan update: changed this area from broad usermod classification to porting only the explicit keep-list after the hardware-removal area removes unsupported usermods.
   - Plan update: clarified that audioreactive must use real host audio input and remove ESP I2S/ADC paths rather than wrapping them in host stubs.
 - Discrepancies or deviations:
-  - Earlier plan allowed hardware-only usermods to remain as excluded source examples; this now conflicts with the requested native-only cleanup and has been removed.
+  - Earlier plan versions allowed hardware-only usermods to remain as excluded source examples; this now conflicts with the requested native-only cleanup and has been removed.
 - Key decisions and reasoning:
   - Preserve the usermod harness and hooks while limiting bundled usermods to host-compatible network, audio, state, timer, and render-buffer behavior.
 - Verification performed:
   - Scanned bundled usermods for GPIO, I2C/SPI/UART, ESP-only headers, sensor/display libraries, output-driver libraries, filesystem use, and network use before adding the keep/remove disposition.
 - Newly discovered tasks or risks:
 
-## Task 9: Native CI, Packaging, Install/Service Helpers, And Final Repository Transition
+### Native CI, packaging, install/service helpers, and final repository transition
 
 Objective: finish the repository transition to a host WLED application with documented build, test, install, and service workflows.
 
-Scope:
+Things to accomplish:
 - Replace firmware-centered CI with macOS/Linux host build, test, browser, and integration checks as part of the repository transition; do not retain firmware CI as a native fallback.
 - Remove or archive `platformio.ini`, `platformio_override.sample.ini`, ESP-only board JSON files, firmware-only partition CSV files, `pio-scripts/`, and firmware-only requirements as part of the native repository transition. Do not retain them as fallback validation for native work; ensure replacement host CI/docs/tests are updated in the same change.
 - Keep or adapt Node web UI build/test tooling for host asset packaging.
@@ -544,13 +510,13 @@ Key files:
 - `Native-Port-Plan.md`
 
 Dependency-expansion rule:
-- If final CI or packaging reveals missing validation coverage, installation behavior, docs, or cleanup dependencies, expand this task to implement them before deleting firmware-era tooling.
+- If final CI or packaging reveals missing validation coverage, installation behavior, docs, or cleanup dependencies, expand this area to implement them before deleting firmware-era tooling.
 
 Implementation notes:
 - Default service should run as the current user unless explicitly configured otherwise.
 - Service helpers must not overwrite config without confirmation.
 - Expose port binding and config path through environment or command-line flags.
-- No docs should point developers to PlatformIO as the required workflow after this task.
+- No docs should point developers to PlatformIO as the required workflow after this area is completed.
 
 Tests and verification:
 - CI runs Linux host build/test and macOS host build/test if available.
@@ -560,13 +526,13 @@ Tests and verification:
 - App restarts with the same config and serves the UI after reboot/login according to selected service mode.
 - `git diff --check` and documentation link checks pass.
 
-Task log:
+Area log:
 - Actions taken:
   - Plan update: removed wording that kept firmware tooling until replacement CI existed and reframed final cleanup as a native repository transition without firmware fallback validation.
 - Discrepancies or deviations:
-  - Earlier plan treated PlatformIO/ESP tooling as late temporary infrastructure; this now conflicts with the native-only direction once host workflow changes are made.
+  - Earlier plan versions treated PlatformIO/ESP tooling as late temporary infrastructure; this now conflicts with the native-only direction once host workflow changes are made.
 - Key decisions and reasoning:
   - Native CI, packaging, and docs should replace firmware workflow directly rather than leaving PlatformIO as the required or fallback path.
 - Verification performed:
-  - Confirmed task headings remain sequential from Task 1 through Task 9 after moving cleanup earlier.
+  - Confirmed the prior version of this plan still used numbered sequential sections, and removed that structure as part of this reorganization.
 - Newly discovered tasks or risks:
