@@ -319,10 +319,40 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added `native/runtime/Runtime.h` and `native/runtime/Runtime.cpp` with a native setup/loop/shutdown lifecycle.
+- Refactored `native/main.cpp` so CLI parsing creates `NativeRuntimeOptions` and starts the runtime instead of only printing skeleton state.
+- Added clean shutdown and restart-request state with explicit exit codes: `0` for clean exit and `75` for restart request.
+- Added POSIX `sigaction` handling for SIGINT and SIGTERM through `native/runtime/SignalHandling.*`.
+- Added runtime test coverage for max-loop shutdown, explicit stop, restart-request exit code, environment-derived config roots, and signal-triggered shutdown.
+- Added `--duration-ms` and `--max-loops` development/test controls so the runtime can be exercised without a permanently running process.
+- Connected runtime startup to the native config root and logged the persisted native identity as `nativeMac`.
 
 Discrepancies or deviations:
+- The runtime does not call the legacy WLED `setup()`/`loop()` yet because core WLED sources still depend on later HTTP, state, output, and hardware-removal tasks.
+- Native logging is stdout/stderr only. File logging remains a later service/runtime task.
+- The restart path returns a process exit code instead of restarting in-process, matching the plan's process restart semantics.
 
 Key decisions and reasoning:
+- Used a small runtime class rather than putting lifecycle logic in `main.cpp` so later WLED setup/loop work can be tested without spawning a process.
+- The signal handler only sets a `sig_atomic_t` flag; the runtime observes the flag during normal loop execution. This avoids doing non-signal-safe work in the signal handler.
+- Kept the loop delay at 1 ms by default to avoid a busy host CPU loop while preserving a shape close to Arduino's repeated `loop()` calls.
+- Runtime config root resolution follows the plan's priority: CLI, `WLED_CONFIG_DIR`, OS default, then development fallback.
+
+Docs updates:
+- `AGENTS.md` now refers to the native runtime rather than only a skeleton.
+- `docs/native-porting.md` documents runtime shutdown behavior, config root priority, native identity persistence, network test permissions, and development loop controls.
+
+Verification performed:
+- Runtime tests were first added against missing `native/runtime` headers and failed as expected.
+- Signal handling tests were first added against a missing `SignalHandling.h` and failed as expected.
+- `scripts/native-test.sh` passed with 6 CTest tests after implementation when run with local socket permission.
+- Final verification also ran `npm ci`, `npm run build`, `npm test`, `scripts/native-build.sh`, `scripts/native-run.sh --help`, and `scripts/native-run.sh --config-dir /private/tmp/wled-native-verify --max-loops 1` successfully.
+- Firmware verification could not run because neither `pio` nor `platformio` is installed in this environment.
+
+Newly discovered tasks or risks:
+- Later service wrappers need to interpret exit code `75` as a restart request.
+- Native runtime logs currently print directly to stdout; structured log levels are still placeholders until logging is expanded.
+- The runtime loop is only a host scheduler shell until legacy WLED setup/loop work can be attached.
 
 ## Task 6: Port Network Identity, DNS, UDP, And Time
 
@@ -358,10 +388,38 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added `native/net/Network.h` and `native/net/Network.cpp`.
+- Implemented `NativeIdentityStore` to create/load `native-id.json` in the config root with a stable lowercase 12-hex-digit MAC-compatible identity.
+- Logged the generated/persisted identity from runtime startup as `nativeMac`.
+- Implemented IPv4 DNS resolution with `getaddrinfo`.
+- Implemented IPv4 local interface discovery with `getifaddrs`, including interface name, address, loopback flag, and up/down flag.
+- Implemented a small POSIX UDP socket wrapper with bind, local port discovery, send, receive with timeout, and close behavior.
+- Added native unit tests for identity persistence, DNS resolution of `localhost`, loopback interface discovery, and UDP localhost send/receive.
 
 Discrepancies or deviations:
+- This task did not implement full WLED `NetworkClass`, multicast/broadcast protocol behavior, NTP, or WLED notifier/DDP/E1.31 packet handling yet.
+- Zeroconf/mDNS advertisement is not implemented yet. The identity value is ready for `_wled._tcp.local.` TXT and `/json/info.mac`, but actual advertising should be added behind a dedicated dependency/adapter decision.
+- Tests cover IPv4 only because the current Arduino compatibility `IPAddress` is IPv4-only.
 
 Key decisions and reasoning:
+- Used OS networking APIs already available on macOS/Linux instead of adding a third-party dependency for the first adapter slice.
+- Kept the generated identity locally administered by forcing the `02` first octet; this avoids implying a real hardware MAC while preserving Home Assistant's MAC-shaped identity expectation.
+- Persisted identity in `native-id.json` under the config root so reconnects do not trigger Home Assistant MAC mismatch behavior.
+- Deferred Zeroconf dependency selection because Home Assistant compatibility needs real mDNS behavior, and choosing Avahi/Bonjour/libdns-sd or another library has packaging and adapter-boundary implications.
+
+Docs updates:
+- `docs/native-porting.md` documents config root priority, `native-id.json`, native network adapter coverage, and the remaining Zeroconf gap.
+
+Verification performed:
+- Network tests were first added against a missing `native/net/Network.h` and failed as expected.
+- A sandboxed `scripts/native-test.sh` run failed at UDP loopback bind with `Operation not permitted`; a standalone Python UDP bind failed the same way, confirming a sandbox permission issue rather than adapter logic.
+- `scripts/native-test.sh` passed with 6 CTest tests, 0 failures when run with local socket permission.
+- `git diff --check` passed after the final documentation and C++ edits.
+
+Newly discovered tasks or risks:
+- Local UDP/multicast tests may require explicit socket permission in sandboxed agent environments.
+- A later task must implement real Zeroconf/mDNS advertisement and verify the advertised `mac` TXT exactly matches `/json/info.mac`.
+- IPv6 support remains unimplemented in the compatibility `IPAddress` and native network tests.
 
 ## Task 7: Port HTTP Server, WebSocket Server, And Web Assets
 

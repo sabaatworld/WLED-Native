@@ -18,6 +18,7 @@ public:
     
     operator uint32_t() const;
     bool operator==(const IPAddress& addr) const;
+    bool operator!=(const IPAddress& addr) const { return !(*this == addr); }
     bool operator==(const uint8_t* addr) const;
     uint8_t operator[](int index) const;
     uint8_t& operator[](int index);

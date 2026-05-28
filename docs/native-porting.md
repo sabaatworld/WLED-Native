@@ -17,9 +17,10 @@ GPIO, RMT, I2S, LEDC, hardware IR receivers, hardware DMX UART, ESP Ethernet boa
 ESP watchdog/brownout handling, or OTA firmware update paths.
 
 The first runnable native experience is a command-line executable named `wled-native`.
-At this stage it is a skeleton that prints version/help and accepts placeholder CLI
-options. Later tasks will attach the compatibility layer, config storage, runtime loop,
-web server, JSON API, WebSocket updates, and output backends.
+It now starts a native runtime loop, logs startup/shutdown state to stdout, exits cleanly
+on SIGINT/SIGTERM, and persists a generated MAC-compatible identity in the native config
+root. Later tasks will attach the web server, JSON API, WebSocket updates, and output
+backends.
 
 ## Native Developer Commands
 
@@ -30,7 +31,7 @@ npm test
 npm run build
 ```
 
-Build and test the native skeleton:
+Build and test the native runtime:
 
 ```sh
 scripts/native-build.sh
@@ -47,6 +48,40 @@ npm run native:run -- --help
 ```
 
 Native build output goes under `build/native/` and is not committed.
+
+Native network tests open localhost UDP sockets. In sandboxed agent environments,
+`scripts/native-test.sh` may need explicit permission to bind local sockets.
+
+## Native Runtime And Config
+
+The native runtime resolves its config root in this order:
+
+1. `--config-dir <path>`
+2. `WLED_CONFIG_DIR=<path>`
+3. macOS: `~/Library/Application Support/WLED`
+4. Linux: `$XDG_CONFIG_HOME/wled`, or `~/.config/wled` when `XDG_CONFIG_HOME` is unset
+5. Fallback: `./.wled-native`
+
+At startup, the runtime creates or loads `native-id.json` in that root. The file stores
+a lowercase 12-hex-digit MAC-compatible identifier beginning with `02`, marking it as
+locally administered. This value is logged as `nativeMac` now and must later be exposed
+consistently through Zeroconf TXT records and `/json/info.mac`.
+
+The runtime returns exit code `0` for clean shutdown and `75` for a native restart
+request. The restart code is an internal contract for later service wrappers; the
+current CLI does not restart itself.
+
+## Native Network Layer
+
+The first native network adapter is intentionally small:
+
+- DNS lookup uses `getaddrinfo` for IPv4 host resolution.
+- Interface discovery uses `getifaddrs` and records IPv4 address, interface name,
+  loopback state, and up/down state.
+- UDP loopback send/receive is wrapped in `NativeUdpSocket`.
+- Zeroconf/mDNS advertisement is not implemented yet. It remains required for Home
+  Assistant discovery and must be added behind a dedicated adapter after the dependency
+  choice is documented.
 
 ## Feature Matrix
 
@@ -77,7 +112,7 @@ Native build output goes under `build/native/` and is not committed.
 
 ## Native CLI Placeholders
 
-The skeleton executable accepts these options now so scripts and docs stabilize early:
+The runtime executable accepts these options now so scripts and docs stabilize early:
 
 - `--help`
 - `--version`
@@ -85,9 +120,12 @@ The skeleton executable accepts these options now so scripts and docs stabilize 
 - `--host <address>`
 - `--port <port>`
 - `--log-level <level>`
+- `--duration-ms <ms>`
+- `--max-loops <count>`
 
-The options are placeholders until later tasks connect the config root, server bind
-address, runtime logging, and service lifecycle.
+`--host` and `--port` remain server placeholders until the HTTP task. `--duration-ms`
+and `--max-loops` are development/test controls for exercising the runtime loop without
+leaving a long-running process active.
 
 ## Dependency Manifest
 
