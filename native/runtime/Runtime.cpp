@@ -63,7 +63,7 @@ std::string defaultConfigDir() {
 
 } // namespace
 
-NativeRuntime::NativeRuntime(const NativeRuntimeOptions &options) : _options(options), _renderBuffer(30) {
+NativeRuntime::NativeRuntime(const NativeRuntimeOptions &options) : _options(options), _renderBuffer(30), _core(options.configDir) {
 }
 
 // Initializes the native lifecycle and starts the first host HTTP/WebSocket adapter.
@@ -73,6 +73,7 @@ void NativeRuntime::setup() {
   const std::string nativeMac = identity.loadOrCreateMac();
   _renderBuffer.resize(30);
   _outputBackend.begin(_renderBuffer.length());
+  _core.begin(_renderBuffer.length(), _startMs);
 
   NativeHttpServerOptions serverOptions;
   serverOptions.host = _options.host;
@@ -81,6 +82,7 @@ void NativeRuntime::setup() {
   serverOptions.version = WLED_NATIVE_VERSION;
   serverOptions.nativeMac = nativeMac;
   serverOptions.renderBuffer = &_renderBuffer;
+  serverOptions.core = &_core;
   _httpServer = std::make_unique<NativeHttpServer>(serverOptions);
   const bool httpStarted = _httpServer->start();
 
@@ -96,11 +98,8 @@ void NativeRuntime::setup() {
 // Preserves the Arduino loop shape while publishing a native memory-backed frame.
 void NativeRuntime::loopOnce() {
   _loopIterations++;
-  if (_renderBuffer.length() == 0) return;
-
-  _renderBuffer.clear();
-  const size_t index = static_cast<size_t>(_loopIterations % _renderBuffer.length());
-  _renderBuffer.setPixel(index, NativeColor{static_cast<uint8_t>(32 + (_loopIterations % 224)), 16, 4, 0, 0});
+  _core.tick(millis());
+  _core.render(_renderBuffer, millis());
   _outputBackend.show(_renderBuffer);
 }
 

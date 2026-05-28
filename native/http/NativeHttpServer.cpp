@@ -292,22 +292,6 @@ std::string readFile(const std::filesystem::path &path) {
   return contents.str();
 }
 
-std::string jsonEffects() {
-  return "{\"0\":\"Solid\"}";
-}
-
-std::string jsonFxData() {
-  return "[\"\",\";;!;1\"]";
-}
-
-std::string jsonPalettes() {
-  return "{\"0\":\"Default\",\"1\":\"* Random Cycle\",\"2\":\"Primary Color\"}";
-}
-
-std::string jsonPaletteData() {
-  return "{\"m\":0,\"p\":{\"0\":[0,0,0,255,255,255],\"1\":[255,0,0,0,255,0,0,0,255],\"2\":[255,255,255]}}";
-}
-
 std::string settingsCompatibilityJs() {
   return "/* native settings compatibility */\n"
          "function GetV(){}\n"
@@ -427,6 +411,7 @@ void configureClientSocket(int client) {
 } // namespace
 
 NativeHttpServer::NativeHttpServer(const NativeHttpServerOptions &options) : _options(options), _fallbackRenderBuffer(30) {
+  _fallbackCore.begin(_fallbackRenderBuffer.length(), millis());
 }
 
 NativeHttpServer::~NativeHttpServer() {
@@ -447,6 +432,7 @@ NativeHttpServer &NativeHttpServer::operator=(NativeHttpServer &&other) noexcept
   _listenFd = other._listenFd;
   _localPort = other._localPort;
   _startMs = other._startMs;
+  _fallbackCore.begin(_fallbackRenderBuffer.length(), millis());
   if (other._acceptThread.joinable()) _acceptThread = std::move(other._acceptThread);
   other._listenFd = -1;
   other._running.store(false);
@@ -545,14 +531,16 @@ void NativeHttpServer::handleClient(int clientFd) {
     return;
   }
 
+  core().tick(millis());
+
   if (request.method == "GET" && request.path == "/json/effects") {
-    sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonEffects());
+    sendHttp(clientFd, 200, "application/json; charset=utf-8", core().jsonEffects());
   } else if (request.method == "GET" && request.path == "/json/fxdata") {
-    sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonFxData());
+    sendHttp(clientFd, 200, "application/json; charset=utf-8", core().jsonFxData());
   } else if (request.method == "GET" && request.path == "/json/palettes") {
-    sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonPalettes());
+    sendHttp(clientFd, 200, "application/json; charset=utf-8", core().jsonPalettes());
   } else if (request.method == "GET" && request.path == "/json/palx") {
-    sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonPaletteData());
+    sendHttp(clientFd, 200, "application/json; charset=utf-8", core().jsonPaletteData());
   } else if (request.method == "GET" && request.path == "/settings/s.js") {
     sendHttp(clientFd, 200, "application/javascript; charset=utf-8", settingsCompatibilityJs());
   } else if (request.method == "GET" && (request.path == "/json" || request.path == "/json/si")) {
@@ -561,7 +549,9 @@ void NativeHttpServer::handleClient(int clientFd) {
     sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonState());
   } else if (request.method == "GET" && request.path == "/json/info") {
     sendHttp(clientFd, 200, "application/json; charset=utf-8", jsonInfo());
-  } else if (request.method == "POST" && request.path == "/json") {
+  } else if (request.method == "GET" && request.path == "/presets.json") {
+    sendHttp(clientFd, 200, "application/json; charset=utf-8", core().presetsJson());
+  } else if (request.method == "POST" && (request.path == "/json" || request.path == "/json/state")) {
     applyJsonState(request.body);
     sendHttp(clientFd, 200, "application/json; charset=utf-8", "{\"success\":true}");
   } else if (request.method == "GET" && request.path == "/version") {
@@ -624,53 +614,34 @@ void NativeHttpServer::handleWebSocket(int clientFd, const std::string &rawReque
 }
 
 std::string NativeHttpServer::jsonState() const {
-  std::lock_guard<std::mutex> lock(_stateMutex);
-  std::ostringstream json;
-  json << "{\"on\":" << (_state.on ? "true" : "false")
-       << ",\"bri\":" << static_cast<int>(_state.bri)
-       << ",\"seg\":[{\"id\":0,\"start\":0,\"stop\":" << (_options.renderBuffer ? _options.renderBuffer->length() : _fallbackRenderBuffer.length())
-       << "}]}";
-  return json.str();
+  return core().jsonState(millis());
 }
 
 std::string NativeHttpServer::jsonInfo() const {
-  const NativeRenderBuffer &buffer = _options.renderBuffer ? *_options.renderBuffer : _fallbackRenderBuffer;
-  std::ostringstream json;
-  json << "{\"ver\":\"" << _options.version
-       << "\",\"vid\":1700000"
-       << ",\"leds\":{\"count\":" << buffer.length()
-       << ",\"rgbw\":true,\"pwr\":" << buffer.estimatedCurrentMilliamps() << "}"
-       << ",\"fxcount\":1"
-       << ",\"palcount\":3"
-       << ",\"cpalcount\":0"
-       << ",\"umpalcount\":0"
-       << ",\"cpalmax\":0"
-       << ",\"name\":\"WLED Native\""
-       << ",\"mac\":\"" << _options.nativeMac << "\""
-       << ",\"freeheap\":" << getFreeHeap()
-       << ",\"uptime\":" << ((millis() - _startMs) / 1000)
-       << "}";
-  return json.str();
+  return core().jsonInfo(_options.version, _options.nativeMac, renderBuffer(), millis());
 }
 
 std::string NativeHttpServer::jsonStateInfo() const {
-  return "{\"state\":" + jsonState() + ",\"info\":" + jsonInfo() + "}";
+  return core().jsonStateInfo(_options.version, _options.nativeMac, renderBuffer(), millis());
 }
 
 void NativeHttpServer::applyJsonState(const std::string &body) {
-  std::lock_guard<std::mutex> lock(_stateMutex);
-  bool on = false;
-  if (bodyBool(body, "on", on)) _state.on = on;
-
-  int bri = 0;
-  if (bodyInt(body, "bri", bri)) {
-    if (bri < 0) bri = 0;
-    if (bri > 255) bri = 255;
-    _state.bri = static_cast<uint8_t>(bri);
-  }
+  core().applyJsonState(body, millis());
 }
 
 NativeRenderBuffer &NativeHttpServer::renderBuffer() {
   return _options.renderBuffer ? *_options.renderBuffer : _fallbackRenderBuffer;
+}
+
+const NativeRenderBuffer &NativeHttpServer::renderBuffer() const {
+  return _options.renderBuffer ? *_options.renderBuffer : _fallbackRenderBuffer;
+}
+
+NativeWledCore &NativeHttpServer::core() {
+  return _options.core ? *_options.core : _fallbackCore;
+}
+
+const NativeWledCore &NativeHttpServer::core() const {
+  return _options.core ? *_options.core : _fallbackCore;
 }
 // AI: end

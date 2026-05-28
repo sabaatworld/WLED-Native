@@ -35,11 +35,18 @@ add_library(native_output
 target_include_directories(native_output PUBLIC native/output)
 target_compile_features(native_output PRIVATE cxx_std_17)
 
+add_library(native_core
+  native/core/NativeWledCore.cpp
+)
+target_include_directories(native_core PUBLIC native/core wled00/src/dependencies/json)
+target_link_libraries(native_core PUBLIC arduino_compat native_output)
+target_compile_features(native_core PRIVATE cxx_std_17)
+
 add_library(native_http
   native/http/NativeHttpServer.cpp
 )
 target_include_directories(native_http PUBLIC native/http)
-target_link_libraries(native_http PUBLIC arduino_compat native_output)
+target_link_libraries(native_http PUBLIC arduino_compat native_core native_output)
 target_compile_features(native_http PRIVATE cxx_std_17)
 
 add_library(native_runtime
@@ -47,7 +54,7 @@ add_library(native_runtime
   native/runtime/SignalHandling.cpp
 )
 target_include_directories(native_runtime PUBLIC native/runtime)
-target_link_libraries(native_runtime PUBLIC arduino_compat native_net native_http native_output)
+target_link_libraries(native_runtime PUBLIC arduino_compat native_net native_http native_core native_output)
 target_compile_features(native_runtime PRIVATE cxx_std_17)
 target_compile_definitions(native_runtime PUBLIC WLED_NATIVE_VERSION="${WLED_NATIVE_VERSION}")
 target_compile_definitions(native_runtime PRIVATE WLED_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -109,12 +116,20 @@ if(BUILD_TESTING)
   )
 
   add_executable(test_http native/tests/test_http.cpp)
-  target_link_libraries(test_http PRIVATE native_http native_output)
+  target_link_libraries(test_http PRIVATE native_http native_core native_output)
   target_compile_features(test_http PRIVATE cxx_std_17)
   target_compile_definitions(test_http PRIVATE WLED_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(
     NAME native_http
     COMMAND test_http
+  )
+
+  add_executable(test_core native/tests/test_core.cpp)
+  target_link_libraries(test_core PRIVATE native_core)
+  target_compile_features(test_core PRIVATE cxx_std_17)
+  add_test(
+    NAME native_core
+    COMMAND test_core
   )
 
   add_executable(test_output native/tests/test_output.cpp)

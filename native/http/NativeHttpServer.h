@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../core/NativeWledCore.h"
 #include "../output/RenderBuffer.h"
 
 #include <atomic>
@@ -21,6 +22,7 @@ struct NativeHttpServerOptions {
   std::string version = "dev";
   std::string nativeMac = "020000000000";
   NativeRenderBuffer *renderBuffer = nullptr;
+  NativeWledCore *core = nullptr;
 };
 
 class NativeHttpServer {
@@ -49,6 +51,7 @@ private:
   uint64_t _startMs = 0;
   std::thread _acceptThread;
   mutable std::mutex _stateMutex;
+  NativeWledCore _fallbackCore;
 
   void acceptLoop();
   void handleClient(int clientFd);
@@ -58,4 +61,7 @@ private:
   std::string jsonStateInfo() const;
   void applyJsonState(const std::string &body);
   NativeRenderBuffer &renderBuffer();
+  const NativeRenderBuffer &renderBuffer() const;
+  NativeWledCore &core();
+  const NativeWledCore &core() const;
 };

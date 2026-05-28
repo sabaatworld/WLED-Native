@@ -143,12 +143,13 @@ void testStaticRoutesAndJson() {
   assert(version.find("test-version") != std::string::npos);
 
   const std::string palettes = httpRequest(port, "GET /json/palettes HTTP/1.1\r\nHost: localhost\r\n\r\n");
-  assert(palettes.find("\"0\"") != std::string::npos);
+  assert(palettes.find("[") != std::string::npos);
   assert(palettes.find("Default") != std::string::npos);
+  assert(palettes.find("Rainbow") != std::string::npos);
 
   const std::string fxdata = httpRequest(port, "GET /json/fxdata HTTP/1.1\r\nHost: localhost\r\n\r\n");
   assert(fxdata.find("HTTP/1.1 200 OK") != std::string::npos);
-  assert(fxdata.find("[") != std::string::npos);
+  assert(fxdata.find("Rainbow@") != std::string::npos);
 
   const std::string settingsJs = httpRequest(port, "GET /settings/s.js?p=0 HTTP/1.1\r\nHost: localhost\r\n\r\n");
   assert(settingsJs.find("HTTP/1.1 200 OK") != std::string::npos);
@@ -163,7 +164,7 @@ void testJsonPostUpdatesState() {
   NativeHttpServer server = makeServer();
   const uint16_t port = server.localPort();
 
-  const std::string body = "{\"on\":false,\"bri\":42}";
+  const std::string body = "{\"on\":false,\"bri\":42,\"seg\":[{\"id\":0,\"fx\":9,\"pal\":11}]}";
   std::ostringstream request;
   request << "POST /json HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: "
           << body.size() << "\r\n\r\n" << body;
@@ -173,6 +174,8 @@ void testJsonPostUpdatesState() {
   const std::string state = httpRequest(port, "GET /json/state HTTP/1.1\r\nHost: localhost\r\n\r\n");
   assert(state.find("\"on\":false") != std::string::npos);
   assert(state.find("\"bri\":42") != std::string::npos);
+  assert(state.find("\"fx\":9") != std::string::npos);
+  assert(state.find("\"pal\":11") != std::string::npos);
 }
 
 void testWebSocketHandshakeAndStateMessages() {

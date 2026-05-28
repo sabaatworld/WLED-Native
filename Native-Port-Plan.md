@@ -588,10 +588,51 @@ Verification:
 Execution log:
 
 Actions taken:
+- Added `native/core/NativeWledCore.h` and `native/core/NativeWledCore.cpp` as the first native core state/effect layer.
+- Added WLED-style native state for power, brightness, transition, selected preset, active playlist, nightlight, and segment fields including bounds, colors, effect, speed, intensity, and palette.
+- Added effect and palette metadata routes backed by the native core instead of one-effect HTTP placeholders.
+- Implemented native render-buffer effects for host-portable 1D behavior: solid, blink/strobe, breathe/fade, rainbow/colorloop, theater/chase, sparkle/glitter, gradient/palette, meteor, and sinelon-style rendering.
+- Added deterministic palette fallback rendering for other effect IDs so browser/API effect selection still updates the internal render buffer while full legacy FX parity is separated from ESP dependencies.
+- Added audioreactive effect fallback behavior for no-microphone native runs by rendering deterministic non-audio output instead of depending on microphone data.
+- Implemented native `presets.json` initialization, preset save/apply, `/presets.json`, JSON `ps` and `psave`, playlist objects with `ps`, `dur`, `transition`, `repeat`, `end`, and `r`, playlist advancement, and nightlight brightness fade.
+- Wired `NativeRuntime` to render frames through `NativeWledCore` and wired `NativeHttpServer`/WebSocket handling to the same core state.
+- Added `native_core` CMake target and `native/tests/test_core.cpp` coverage for JSON state rendering, preset save/apply, playlist advancement, and nightlight behavior.
 
 Discrepancies or deviations:
+- This task does not compile `wled00/FX.cpp`, `FX_fcn.cpp`, `playlist.cpp`, `presets.cpp`, `json.cpp`, or `ntp.cpp` directly yet. Those files remain coupled to `wled.h`, `strip`, Arduino/ESP globals, and broader firmware runtime state.
+- The native core implements a compatibility slice and deterministic fallback effects so all non-hardware JSON/API/browser paths can work now; exact visual parity for every WLED 1D/2D effect remains a later extraction task.
+- Native time support is monotonic runtime time for uptime, nightlight, and playlist scheduling. Full NTP, timezone, and timer scheduler parity remains unported.
+- Browser automation with Playwright could not run because the package is not installed in this environment. HTTP page-load and JSON smoke checks were run with `curl`, and WebSocket behavior remains covered by the native HTTP CTest.
 
 Key decisions and reasoning:
+- Added a native core boundary instead of expanding the HTTP adapter because runtime loop, HTTP JSON, WebSocket updates, presets, playlists, and rendering need a single state owner.
+- Used ArduinoJson for native JSON parsing because the repository already vendors it and WLED's state/preset files are JSON contract surfaces.
+- Kept physical LED output out of scope and rendered through the existing null-backed native render buffer, matching the native product decision that ESP hardware support is removed and host output backends are future work.
+- Exposed WLED-style effect IDs and names while using fallback renderers where exact effect code is still entangled with ESP/Arduino firmware dependencies. This keeps API controls useful without silently dropping requested effect IDs.
+- Did not introduce a third-party HTTP, WebSocket, scheduling, or effects dependency in this task.
+
+Docs updates:
+- `docs/native-porting.md` now documents the native core state/effects layer, preset/playlist/nightlight support, JSON/WebSocket route behavior, fallback effect limits, and remaining NTP/timer gap.
+- `README.md` now describes the native runtime as accepting core JSON/WebSocket state changes and running effect/preset/playlist/nightlight logic into the internal render buffer.
+- `AGENTS.md` project structure now identifies `native/` as containing runtime, adapters, core state/effect logic, and tests.
+
+Verification performed:
+- `scripts/native-build.sh` passed.
+- `scripts/native-test.sh` failed under the sandbox only for localhost socket bind restrictions in `native_network` and `native_http`, matching the previously documented sandbox limitation.
+- `scripts/native-test.sh` passed with localhost socket permission: 9 CTest tests, 0 failures.
+- `npm ci`, `npm run build`, and `npm test` passed; Node tests reported 16 tests, 0 failures.
+- `git diff --check` passed.
+- Started `scripts/native-run.sh --config-dir /private/tmp/wled-native-task9-browser --port 18091 --log-level debug` with localhost socket permission and confirmed the HTTP server started.
+- Localhost smoke checks loaded `/` and `/settings`, updated `/json/state` with brightness/effect/palette, confirmed state reflected `bri=88`, `fx=9`, `pal=11`, and confirmed `/json/effects` and `/json/palettes` returned WLED-style arrays including `Rainbow`.
+- Playwright browser automation was attempted but could not run because `playwright` is not installed in this environment.
+- Firmware verification could not run because neither `pio` nor `platformio` is installed in this environment.
+
+Newly discovered tasks or risks:
+- Full visual parity requires extracting or adapting the existing `wled00/FX*.cpp` and segment engine once their dependencies on global firmware runtime, `wled.h`, ESP attributes, and bus/strip internals are separated.
+- Native 2D effects currently use fallback rendering rather than matrix-aware 2D behavior.
+- Full timer/NTP/timezone behavior remains a separate native scheduler task; current support covers runtime monotonic scheduling for playlists and nightlight only.
+- Preset compatibility should be expanded to cover quick-load labels, API-command presets, ledmaps, and the exact async save semantics from firmware.
+- Browser UI deeper interaction testing still needs a Playwright or Browser-plugin environment with the native server reachable from the automation runtime.
 
 ## Task 10: Port MQTT, Hue, Alexa-Compatible, And Integration Protocols
 

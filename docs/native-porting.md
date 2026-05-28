@@ -20,7 +20,9 @@ The first runnable native experience is a command-line executable named `wled-na
 It now starts a native runtime loop, logs startup/shutdown state to stdout, exits cleanly
 on SIGINT/SIGTERM, persists a generated MAC-compatible identity in the native config
 root, serves the existing `wled00/data` web assets through a native localhost HTTP
-server, and publishes a memory-backed render buffer through a null output backend.
+server, applies core JSON/WebSocket state changes, runs native effect/palette,
+preset, playlist, and nightlight logic, and publishes a memory-backed render buffer
+through a null output backend.
 
 ## Native Developer Commands
 
@@ -81,14 +83,18 @@ The adapter currently serves:
 
 - Existing browser assets from `wled00/data`, including `/`, `/settings`, `/edit`,
   `/liveview`, `/liveview2D`, static JS/CSS/image routes, and 404 handling.
-- Minimal `/json`, `/json/state`, `/json/info`, `/json/si`, `/version`, `/uptime`, and
-  `/freeheap` responses for the native milestone.
-- Minimal effect, palette, palette-preview, and settings-script compatibility routes:
+- `/json`, `/json/state`, `/json/info`, `/json/si`, `/version`, `/uptime`, and
+  `/freeheap` responses backed by the native core state.
+- Effect, palette, palette-preview, and settings-script compatibility routes:
   `/json/effects`, `/json/fxdata`, `/json/palettes`, `/json/palx`, and
   `/settings/s.js`.
 - `/ws` WebSocket handshakes, initial state/info delivery, `"p"` heartbeat replies,
-  JSON state updates for `on` and `bri`, verbose `{"v":true}` state/info responses,
-  and `{"lv":true}` live-view frames sourced from the normal native render buffer.
+  JSON state updates for core state, segment effect/palette/color controls, verbose
+  `{"v":true}` state/info responses, and `{"lv":true}` live-view frames sourced from
+  the normal native render buffer.
+- `/presets.json` from the native config root. Missing preset storage is initialized
+  as `{"0":{}}`, and JSON state with `ps`, `psave`, or `playlist` is handled by the
+  native core.
 
 Firmware OTA and bootloader update routes are not supported by native WLED. `/update`
 returns `410 Gone`, and `/upload` returns `501 Not Implemented` until file-editor upload
@@ -98,13 +104,36 @@ The adapter does not yet reuse `wled00/wled_server.cpp`, `wled00/json.cpp`, or
 `wled00/ws.cpp`. It is a host boundary that keeps browser/API bring-up testable while
 later tasks remove ESP-only coupling from the existing handlers.
 
+## Native Core State And Effects
+
+`native/core/NativeWledCore.*` is the first native implementation of the WLED state
+value path. It preserves the public JSON shape for `on`, `bri`, `transition`, `ps`,
+`pl`, `nl`, and segment fields such as `start`, `stop`, `fx`, `sx`, `ix`, `pal`, and
+`col`.
+
+The core exposes WLED-style effect and palette metadata and renders every selected
+effect ID to the internal render buffer. A focused set of host-portable 1D behaviors is
+implemented directly now, including solid, blink/strobe, breathe/fade, rainbow,
+theater/chase, sparkle/glitter, gradient/palette, meteor, and sinelon-style effects.
+Other effect IDs use a deterministic palette fallback so JSON/API and browser controls
+remain functional until the full `wled00/FX*.cpp` engine is separated from ESP-only
+dependencies. Audioreactive IDs also fall back to deterministic rendering when no
+microphone data is available.
+
+Presets are read from and saved to `presets.json` under the native config root. Playlist
+objects with `ps`, `dur`, `transition`, `repeat`, `end`, and `r` are supported for
+native preset cycling. Nightlight state is represented in JSON and fades brightness
+toward `tbri`; native time is currently monotonic process time rather than a complete
+NTP/timezone scheduler.
+
 ## Native Render Buffer And Output
 
 The first output backend is a memory render buffer plus a null backend. The render
 buffer stores RGBW pixels and CCT metadata, can encode common RGB/GRB/RGBW orders,
-estimates current at 20 mA per fully-on channel, and supplies live-view data to the
-native WebSocket adapter. The null backend records the last frame and frame count for
-tests, but it intentionally does not drive physical LEDs.
+estimates current at 20 mA per fully-on channel, receives frames from the native core,
+and supplies live-view data to the native WebSocket adapter. The null backend records
+the last frame and frame count for tests, but it intentionally does not drive physical
+LEDs.
 
 Host-native physical output remains future work. USB serial, USB DMX, SPI, HID, vendor
 SDKs, or network forwarding backends should attach behind the narrow native output
@@ -130,7 +159,7 @@ The first native network adapter is intentionally small:
 | JSON API (`/json`, `/json/state`, `/json/info`, `/json/si`) | Keep | API compatibility is a release gate. |
 | WebSocket state updates (`/ws`) | Keep | Preserve state push behavior and existing live-view messages. |
 | Web UI | Keep | Serve existing `wled00/data` UI through the native server. |
-| Effects, palettes, segments, presets, playlists | Keep | Back with an internal render buffer before physical output exists. |
+| Effects, palettes, segments, presets, playlists | Keep | Native core state now backs JSON/WebSocket and the internal render buffer; full legacy FX engine parity remains in progress. |
 | Home Assistant discovery and identity | Keep | First useful native milestone release gate; persist a MAC-compatible instance ID. |
 | Config files (`cfg.json`, `wsec.json`, `presets.json`, palettes, ledmaps) | Replace storage backend | Keep file names and JSON semantics under the native config root. |
 | First-run config | Replace initialization | Use WLED defaults; do not auto-import ESP exports. |

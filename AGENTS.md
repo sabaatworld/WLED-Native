@@ -62,7 +62,7 @@ usermods/            # Community usermods (each has library.json + .cpp/.h)
 platformio.ini       # Build configuration and environments
 pio-scripts/         # PlatformIO build scripts (Python)
 tools/               # Node.js build tools (cdata.js) and tests
-native/              # Native macOS/Linux entry points and tests
+native/              # Native macOS/Linux runtime, adapters, core state/effect logic, and tests
 scripts/             # Native build/run/test helper scripts
 docs/                # Coding convention docs
 .github/workflows/   # CI/CD (GitHub Actions)

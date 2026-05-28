@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../http/NativeHttpServer.h"
+#include "../core/NativeWledCore.h"
 #include "../output/RenderBuffer.h"
 
 #include <atomic>
@@ -43,6 +44,7 @@ private:
   uint64_t _startMs = 0;
   NativeRenderBuffer _renderBuffer;
   NativeNullOutputBackend _outputBackend;
+  NativeWledCore _core;
   std::unique_ptr<NativeHttpServer> _httpServer;
 
   void setup();
