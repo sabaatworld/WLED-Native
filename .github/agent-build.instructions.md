@@ -5,6 +5,8 @@ applyTo: "**"
 
 Detailed build workflow, timeouts, and troubleshooting for making code changes in agent mode. Always reference these instructions first when running builds or validating changes.
 
+During the native macOS/Linux migration, `Native-Port-Plan.md` remains the source of truth for scope and status. Use the `scripts/native-*.sh` wrappers for native-port task validation rather than introducing a separate native workflow document.
+
 ## Build Timing and Timeouts
 
 Use these timeout values when running builds:
@@ -13,6 +15,9 @@ Use these timeout values when running builds:
 |---|---|---|---|
 | `npm run build` | ~3 s | 30 s | Web UI → `wled00/html_*.h` `wled00/js_*.h` headers |
 | `npm test` | ~40 s | 2 min | Validates build system |
+| `scripts/native-build.sh` | ~10 s | 2 min | Configure and build the experimental native host CLI in `build/native/` |
+| `scripts/native-run.sh --help` | ~2 s | 30 s | Smoke-test the native host CLI entry point |
+| `scripts/native-test.sh` | ~10 s | 2 min | Native build plus CLI smoke tests |
 | `npm run dev` | continuous | — | Watch mode, auto-rebuilds on changes |
 | `pio run -e <env>` | 15–20 min | 30 min | First build downloads toolchains; subsequent builds are faster |
 

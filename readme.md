@@ -16,6 +16,16 @@ A fast and feature-rich implementation of an ESP32 and ESP8266 webserver to cont
 
 Originally created by [Aircoookie](https://github.com/Aircoookie)
 
+## Native port status
+
+The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). Task 2 adds an experimental host build/bootstrap path that compiles directly from `wled00/`:
+
+- `scripts/native-build.sh`
+- `scripts/native-run.sh --help`
+- `scripts/native-test.sh`
+
+The existing PlatformIO firmware workflow remains in the repository during the transition, but native-port work should follow `Native-Port-Plan.md` and these wrapper scripts rather than a separate native status document.
+
 ## ⚙️ Features
 - WS2812FX library with more than 100 special effects  
 - FastLED noise effects and 50 palettes  
@@ -84,4 +94,3 @@ If you are prone to photosensitive epilepsy, we recommended you do **not** use t
 If you still want to try, don't use strobe, lighting or noise modes or high effect speed settings.
 
 As per the EUPL license, I assume no liability for any damage to you or any other person or equipment.  
-

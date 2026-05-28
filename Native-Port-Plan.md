@@ -146,10 +146,21 @@ Tests and verification:
 
 Task log:
 - Actions taken:
+  - Confirmed the branch target remains in-place migration of `wled00/` and that `wled00-backup/` is present only as an ignored reference snapshot.
+  - Inventoried the current automated test surface: `npm test` runs the Node.js test runner, `tools/cdata-test.js` validates web asset generation, `test/` only contained the PlatformIO README baseline before native task work, and generated web headers remain ignored artifacts under `wled00/`.
+  - Added a native CLI smoke test entry under `test/native-cli.test.js` so the normal `npm test` flow now covers task 2's host bootstrap path.
+  - Updated contributor-facing docs (`readme.md`, `AGENTS.md`, `.github/copilot-instructions.md`, `.github/agent-build.instructions.md`) to point native-port work back to this plan and the new `scripts/native-*.sh` wrappers instead of any separate native status document.
 - Discrepancies or deviations:
+  - The repository still contains PlatformIO firmware tooling and workflows because task 1 only establishes the baseline; removal remains a later plan item after host replacements are expanded.
 - Key decisions and reasoning:
+  - Kept task 1 changes focused on inventory and documentation because the repo already did not reference `docs/native-porting.md` or `docs/native-running.md`; the missing baseline gap was explicit native workflow/test inventory rather than stale links.
+  - Reused the existing Node.js test runner for the new native smoke test so native validation enters the normal repository test flow immediately instead of creating an isolated side harness.
 - Verification performed:
+  - Ran `node --test test/native-cli.test.js` before implementation and confirmed failure because `scripts/native-run.sh` did not yet exist.
+  - Ran `npm ci`, `npm test`, and `npm run build` after the task 1/task 2 changes landed.
+  - Attempted `pio run -e esp32dev`, but `pio` is not installed in this environment (`command not found`), so firmware-baseline verification remains pending on a PlatformIO-capable machine.
 - Newly discovered tasks or risks:
+  - Host runtime work in task 3 will need a reusable way to expose the package version/build metadata to more of `wled00/` than the standalone bootstrap CLI currently touches.
 
 ## Task 2: Host Build Entry Point For The Original `wled00` Tree
 
@@ -187,10 +198,22 @@ Tests and verification:
 
 Task log:
 - Actions taken:
+  - Added a root `CMakeLists.txt` that extracts the version from `package.json` and builds a `wled-native` executable from source files living under `wled00/`.
+  - Added `wled00/wled_host_cli.h`, `wled00/wled_host_cli.cpp`, and `wled00/wled_host_main.cpp` as the first host-only bootstrap entry point for the original source tree.
+  - Added `scripts/native-build.sh`, `scripts/native-run.sh`, and `scripts/native-test.sh` as thin wrappers around the in-place host build and CLI smoke path.
+  - Added `native:build`, `native:run`, and `native:test` npm scripts so the host workflow is discoverable through the existing developer tooling.
 - Discrepancies or deviations:
+  - The bootstrap executable currently parses and reports CLI options but does not call `WLED::instance().setup()` / `loop()` yet; that work is intentionally deferred to task 3 because the current `wled00` runtime still hard-depends on Arduino/ESP headers and lifecycle assumptions.
 - Key decisions and reasoning:
+  - Used CMake because it is already available on macOS/Linux developer machines and can target original `wled00/` sources without introducing a second application tree.
+  - Kept the first native compile target intentionally small so task 2 establishes a stable command-line contract (`--help`, `--version`, `--config-dir`, `--host`, `--port`, `--log-level`) before broader de-ESP runtime work begins.
+  - Parsed the package version directly from `package.json` during CMake configure so the host CLI reports the same version string as the existing web build tooling without a new duplicate version file.
+  - Chose CMake as a build-time-only dependency boundary for the host path; it adds no runtime dependency to the produced binary, and current packaging impact is limited to requiring CMake plus a C++17 compiler on developer/build machines.
 - Verification performed:
+  - Added `test/native-cli.test.js` first, then confirmed the red failure before writing the host scaffold.
+  - Ran `node --test test/native-cli.test.js`, `npm test`, `npm run build`, `scripts/native-build.sh`, `scripts/native-run.sh --help`, and `scripts/native-test.sh` successfully after implementation.
 - Newly discovered tasks or risks:
+  - Task 3 needs a shared host-facing configuration/bootstrap layer so future native binaries, tests, and runtime code do not duplicate CLI parsing or config-root resolution logic.
 
 ## Task 3: Directly De-ESP Foundation, Filesystem, Config, Identity, And Runtime
 

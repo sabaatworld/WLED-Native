@@ -15,12 +15,18 @@ Always reference these instructions - including coding guidelines in `docs/` - f
 | `npm ci` | Install Node.js deps (required first) | 30s |
 | `npm run build` | Build web UI into `wled00/html_*.h` / `wled00/js_*.h` | 30s |
 | `npm test` | Run test suite (Node.js built-in `node --test`) | 2 min |
+| `scripts/native-build.sh` | Configure and build the experimental native host CLI in `build/native/` | 2 min |
+| `scripts/native-run.sh --help` | Smoke-test the native host CLI entry point | 30s |
+| `scripts/native-test.sh` | Build plus CLI smoke tests for the native host path | 2 min |
 | `npm run dev` | Watch mode — auto-rebuilds web UI on changes | continuous |
 | `pio run -e esp32dev` | Build firmware (ESP32, most common target) | 5 min |
 | `pio run -e nodemcuv2` | Build firmware (ESP8266) | 5 min |
 
 **Always run `npm ci && npm run build` before `pio run`.** The web UI build generates
 required C headers for firmware compilation.
+
+For native-port tasks, use `Native-Port-Plan.md` as the source of truth and prefer
+the `scripts/native-*.sh` wrappers over inventing a separate native workflow document.
 
 ### Running a Single Test
 

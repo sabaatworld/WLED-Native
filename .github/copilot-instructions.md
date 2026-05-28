@@ -14,6 +14,7 @@ Always reference these instructions first and fallback to search or bash command
 - Node.js 20+ (see `.nvmrc`)
 - Install dependencies: `npm ci`
 - PlatformIO (required only for firmware compilation): `pip install -r requirements.txt`
+- Native-port tasks: follow `Native-Port-Plan.md` and the `scripts/native-*.sh` wrappers instead of a separate native workflow document
 
 ## Build and Test
 <!-- HUMAN_ONLY_START -->
@@ -22,6 +23,9 @@ Always reference these instructions first and fallback to search or bash command
 |---|---|---|
 | `npm run build` | Build web UI → generates `wled00/html_*.h` and `wled00/js_*.h` headers | ~3 s |
 | `npm test` | Run test suite | ~40 s |
+| `scripts/native-build.sh` | Configure and build the experimental host CLI from `wled00/` | ~10 s |
+| `scripts/native-run.sh --help` | Smoke-test the host CLI entry point | ~2 s |
+| `scripts/native-test.sh` | Run native build + CLI smoke tests | ~10 s |
 | `npm run dev` | Watch mode — auto-rebuilds web UI on file changes | — |
 | `pio run -e <env>` | Build firmware for a hardware target | 15–20 min |
 
