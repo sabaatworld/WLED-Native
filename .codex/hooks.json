@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/native_port_prompt_reminder.py\"",
+            "statusMessage": "Checking native port context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/native_port_stop_check.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking native port plan updates"
+          }
+        ]
+      }
+    ]
+  }
+}

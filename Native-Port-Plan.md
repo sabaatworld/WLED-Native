@@ -93,15 +93,29 @@ Actions taken:
 - Removed the earlier preview/network-first milestone assumption and replaced it with internal render buffer plus no-op/null output as the first native output strategy.
 - Added Home Assistant compatibility, stable identity, default config behavior, and third-party dependency policy to the plan.
 - Added a research baseline with current Home Assistant, WLED API/protocol, XDG, Apple filesystem, and candidate dependency references.
+- Added repo-level Codex hook guardrails for native-port prompts and stop-time plan checks.
 
 Discrepancies or deviations:
 - Earlier plan text treated preview/network output as the first output milestone. The answered scope rejects additional browser preview work and does not require physical LED output from day one.
 - Earlier config text suggested automatic ESP config import guidance. The answered scope says first run should use WLED defaults; import is now optional future work only.
+- The stop hook correctly detected that native-port-related staged files can exist without a same-change `Native-Port-Plan.md` update. This task log now records the hook and AGENTS documentation work explicitly.
 
 Key decisions and reasoning:
 - Keep WLED's user-visible product name to avoid breaking API/integration expectations and unnecessary rebranding.
 - Use a generated, persisted MAC-compatible native instance ID because Home Assistant stores WLED's MAC-derived unique ID and rejects mismatches.
 - Keep existing live-view/peek compatibility only as a render-buffer view, not as a new native preview feature.
+- Keep repo hooks in `.codex/hooks.json` rather than inline config so future agents have a single reviewed hook manifest.
+- Resolve hook commands through `git rev-parse --show-toplevel` so Codex can start from subdirectories without breaking hook paths.
+
+Docs updates:
+- `AGENTS.md` documents the native-port workflow, the requirement to update this plan with each native-port change, and the repo-level Codex hooks.
+
+Verification performed:
+- `npm test` passed with 16 tests, 0 failures after the plan scope update.
+
+Newly discovered tasks or risks:
+- Repo hooks must be reviewed/trusted with `/hooks` after checkout or hook edits; otherwise agents may not receive the process reminders.
+- Stop-time hook checks are path/message heuristics and may produce false positives or miss unusual native-port changes. Treat the hook as a guardrail, not proof that the plan is complete.
 
 ## Task 2: Add Native Build Skeleton And Developer Scripts
 
