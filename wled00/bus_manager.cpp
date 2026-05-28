@@ -694,6 +694,9 @@ BusNetwork::BusNetwork(const BusConfig &bc)
     case TYPE_NET_E131_RGB:
       _UDPtype = 1;
       break;
+    case TYPE_NET_LIFX_RGB:
+      _UDPtype = 3;
+      break;
     default: // TYPE_NET_DDP_RGB / TYPE_NET_DDP_RGBW
       _UDPtype = 0;
       break;
@@ -770,6 +773,7 @@ std::vector<LEDType> BusNetwork::getLEDTypes() {
   return {
     {TYPE_NET_DDP_RGB,     "N",     PSTR("DDP RGB (network)")},      // should be "NNNN" to determine 4 "pin" fields
     {TYPE_NET_ARTNET_RGB,  "N",     PSTR("Art-Net RGB (network)")},
+    {TYPE_NET_LIFX_RGB,    "N",     PSTR("LIFX RGB (network)")},
     {TYPE_NET_DDP_RGBW,    "N",     PSTR("DDP RGBW (network)")},
     {TYPE_NET_ARTNET_RGBW, "N",     PSTR("Art-Net RGBW (network)")},
     // hypothetical extensions

@@ -748,13 +748,13 @@ void sendSysInfoUDP()
 
 
 /*********************************************************************************************\
- * Art-Net, DDP, E131 output - work in progress
+ * Art-Net, DDP, E131, LIFX output - work in progress
 \*********************************************************************************************/
 
 //
 // Send real time UDP updates to the specified client
 //
-// type   - protocol type (0=DDP, 1=E1.31, 2=ArtNet)
+// type   - protocol type (0=DDP, 1=E1.31, 2=ArtNet, 3=LIFX)
 // client - the IP address to send to
 // length - the number of pixels
 // buffer - a buffer of at least length*4 bytes long
@@ -763,6 +763,84 @@ void sendSysInfoUDP()
 static       size_t sequenceNumber = 0; // this needs to be shared across all outputs
 static const size_t ART_NET_HEADER_SIZE = 12;
 static const byte   ART_NET_HEADER[] PROGMEM = {0x41,0x72,0x74,0x2d,0x4e,0x65,0x74,0x00,0x00,0x50,0x00,0x0e};
+static constexpr uint16_t LIFX_DEFAULT_PORT = 56700;
+static constexpr uint16_t LIFX_HEADER_SIZE = 36;
+static constexpr uint16_t LIFX_PACKET_SET_COLOR = 102;
+static constexpr uint16_t LIFX_PACKET_SET_EXTENDED_COLOR_ZONES = 510;
+static constexpr uint16_t LIFX_SET_COLOR_PAYLOAD_SIZE = 13;
+static constexpr uint16_t LIFX_EXTENDED_COLOR_ZONES_PAYLOAD_SIZE = 664;
+static constexpr uint8_t  LIFX_EXTENDED_COLOR_ZONES_HEADER_SIZE = 8;
+static constexpr uint8_t  LIFX_COLOR_SIZE = 8;
+static constexpr uint8_t  LIFX_APPLY_NO_APPLY = 0;
+static constexpr uint8_t  LIFX_APPLY = 1;
+static constexpr uint8_t  LIFX_FRAME_ADDRESSABLE_TAGGED = 0x34;
+static constexpr uint16_t LIFX_DEFAULT_KELVIN = 3500;
+static constexpr uint32_t LIFX_SOURCE = 0x574C4544UL; // "WLED"
+static constexpr uint8_t  LIFX_ZONES_PER_PACKET = 82;
+
+static void lifxWriteLE16(uint8_t *buffer, uint16_t value) {
+  buffer[0] = value & 0xFF;
+  buffer[1] = (value >> 8) & 0xFF;
+}
+
+static void lifxWriteLE32(uint8_t *buffer, uint32_t value) {
+  buffer[0] = value & 0xFF;
+  buffer[1] = (value >> 8) & 0xFF;
+  buffer[2] = (value >> 16) & 0xFF;
+  buffer[3] = (value >> 24) & 0xFF;
+}
+
+static void lifxWriteHeader(WiFiUDP &udp, uint16_t packetSize, uint16_t packetType, uint8_t sequence) {
+  uint8_t header[LIFX_HEADER_SIZE] = {0};
+  lifxWriteLE16(header, packetSize);
+  header[2] = 0x00; // LIFX protocol 1024, lower 8 bits
+  header[3] = LIFX_FRAME_ADDRESSABLE_TAGGED;
+  lifxWriteLE32(header + 4, LIFX_SOURCE);
+  header[23] = sequence;
+  lifxWriteLE16(header + 32, packetType);
+  udp.write(header, sizeof(header));
+}
+
+static void lifxRgbToHsbk(const uint8_t *buffer, size_t offset, uint8_t bri, uint16_t &hue, uint16_t &sat, uint16_t &brightness, uint16_t &kelvin) {
+  const uint8_t r = scale8(buffer[offset],   bri);
+  const uint8_t g = scale8(buffer[offset+1], bri);
+  const uint8_t b = scale8(buffer[offset+2], bri);
+
+  uint8_t maxV = r > g ? r : g;
+  if (b > maxV) maxV = b;
+  uint8_t minV = r < g ? r : g;
+  if (b < minV) minV = b;
+
+  hue = 0;
+  sat = 0;
+  brightness = (uint16_t)maxV * 257U;
+  kelvin = LIFX_DEFAULT_KELVIN;
+
+  const uint8_t delta = maxV - minV;
+  if (!maxV || !delta) return;
+
+  sat = ((uint32_t)delta * 65535U + (maxV / 2U)) / maxV;
+
+  int32_t huePart;
+  if (maxV == r) {
+    huePart = (int32_t)g - b;
+    if (huePart < 0) huePart += 6 * delta;
+  } else if (maxV == g) {
+    huePart = (int32_t)b - r + 2 * delta;
+  } else {
+    huePart = (int32_t)r - g + 4 * delta;
+  }
+
+  const uint32_t divisor = 6U * delta;
+  hue = (((uint32_t)huePart * 65536UL + (divisor / 2U)) / divisor) & 0xFFFF;
+}
+
+static void lifxWriteHsbk(uint8_t *target, uint16_t hue, uint16_t sat, uint16_t brightness, uint16_t kelvin) {
+  lifxWriteLE16(target, hue);
+  lifxWriteLE16(target + 2, sat);
+  lifxWriteLE16(target + 4, brightness);
+  lifxWriteLE16(target + 6, kelvin);
+}
 
 uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, const uint8_t *buffer, uint8_t bri, bool isRGBW)  {
   if (!(apActive || interfacesInited) || !client[0] || !length) return 1;  // network not initialised or dummy/unset IP address  031522 ajn added check for ap
@@ -891,6 +969,65 @@ uint8_t realtimeBroadcast(uint8_t type, IPAddress client, uint16_t length, const
           return 1; // borked
         }
         channel += packetSize;
+      }
+    } break;
+
+    case 3: //LIFX
+    {
+      const uint_fast8_t channelsPerLed = isRGBW ? 4 : 3;
+
+      if (length == 1) {
+        if (!ddpUdp.beginPacket(client, LIFX_DEFAULT_PORT)) {
+          DEBUG_PRINTLN(F("LIFX WiFiUDP.beginPacket returned an error"));
+          return 1;
+        }
+
+        uint16_t hue, sat, brightness, kelvin;
+        lifxRgbToHsbk(buffer, 0, bri, hue, sat, brightness, kelvin);
+
+        lifxWriteHeader(ddpUdp, LIFX_HEADER_SIZE + LIFX_SET_COLOR_PAYLOAD_SIZE, LIFX_PACKET_SET_COLOR, sequenceNumber++ & 0xFF);
+        uint8_t payload[LIFX_SET_COLOR_PAYLOAD_SIZE] = {0};
+        lifxWriteHsbk(payload + 1, hue, sat, brightness, kelvin);
+        ddpUdp.write(payload, sizeof(payload)); // duration defaults to 0ms
+
+        if (!ddpUdp.endPacket()) {
+          DEBUG_PRINTLN(F("LIFX WiFiUDP.endPacket returned an error"));
+          return 1;
+        }
+      } else {
+        for (uint16_t zoneIndex = 0; zoneIndex < length; zoneIndex += LIFX_ZONES_PER_PACKET) {
+          const uint16_t remaining = length - zoneIndex;
+          const uint8_t colorsCount = remaining > LIFX_ZONES_PER_PACKET ? LIFX_ZONES_PER_PACKET : (uint8_t)remaining;
+          const bool lastPacket = (zoneIndex + colorsCount >= length);
+
+          if (!ddpUdp.beginPacket(client, LIFX_DEFAULT_PORT)) {
+            DEBUG_PRINTLN(F("LIFX WiFiUDP.beginPacket returned an error"));
+            return 1;
+          }
+
+          lifxWriteHeader(ddpUdp, LIFX_HEADER_SIZE + LIFX_EXTENDED_COLOR_ZONES_PAYLOAD_SIZE, LIFX_PACKET_SET_EXTENDED_COLOR_ZONES, sequenceNumber++ & 0xFF);
+          uint8_t payloadHeader[LIFX_EXTENDED_COLOR_ZONES_HEADER_SIZE] = {0};
+          payloadHeader[4] = lastPacket ? LIFX_APPLY : LIFX_APPLY_NO_APPLY;
+          lifxWriteLE16(payloadHeader + 5, zoneIndex);
+          payloadHeader[7] = colorsCount;
+          ddpUdp.write(payloadHeader, sizeof(payloadHeader)); // duration defaults to 0ms
+
+          uint8_t color[LIFX_COLOR_SIZE] = {0};
+          for (uint8_t i = 0; i < LIFX_ZONES_PER_PACKET; i++) {
+            memset(color, 0, sizeof(color));
+            if (i < colorsCount) {
+              uint16_t hue, sat, brightness, kelvin;
+              lifxRgbToHsbk(buffer, (zoneIndex + i) * channelsPerLed, bri, hue, sat, brightness, kelvin);
+              lifxWriteHsbk(color, hue, sat, brightness, kelvin);
+            }
+            ddpUdp.write(color, sizeof(color));
+          }
+
+          if (!ddpUdp.endPacket()) {
+            DEBUG_PRINTLN(F("LIFX WiFiUDP.endPacket returned an error"));
+            return 1;
+          }
+        }
       }
     } break;
   }
