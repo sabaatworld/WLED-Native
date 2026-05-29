@@ -20,9 +20,9 @@ Note: WLED doesn't respect the brightness of the preset being auto loaded, so th
 
 ## Installation
 
-Copy and update the example `platformio_override.ini.sample`
+Copy and update the example `legacy firmware override sample`
 from the Rotary Encoder UI usermode folder to the root directory of your particular build.
-This file should be placed in the same directory as `platformio.ini`.
+This file should be placed in the same directory as `legacy firmware config`.
 
 ### Define Your Options
 
@@ -34,7 +34,7 @@ This file should be placed in the same directory as `platformio.ini`.
                                     also tells this usermod that the display is available
                                     (see the Four Line Display usermod `readme.md` for more details)
 
-Example to add in platformio_override:
+Example to add in the legacy firmware override file:
   -D USERMOD_AUTO_SAVE
   -D AUTOSAVE_AFTER_SEC=10
   -D AUTOSAVE_PRESET_NUM=100
@@ -42,7 +42,7 @@ Example to add in platformio_override:
 
 You can also configure auto-save parameters using Usermods settings page.
 
-### PlatformIO requirements
+### legacy firmware build requirements
 
 No special requirements.
 

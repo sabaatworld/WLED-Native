@@ -7,7 +7,7 @@ Very loosely based on the existing usermod "seven segment display".
 
 ## Installation
 
-Add the compile-time option `-D USERMOD_SSDR` to your `platformio.ini` (or `platformio_override.ini`) or use `#define USERMOD_SSDR` in `my_config.h`.
+Add the compile-time option `-D USERMOD_SSDR` to your `legacy firmware config` (or `legacy firmware override file`) or use `#define USERMOD_SSDR` in `my_config.h`.
 
 For the auto brightness option, the usermod SN_Photoresistor or BH1750_V2 has to be installed as well. See SN_Photoresistor/readme.md or BH1750_V2/readme.md for instructions.
 

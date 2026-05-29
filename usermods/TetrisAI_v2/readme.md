@@ -7,15 +7,11 @@ from the usermod settings page in WLED.
 
 ## Installation 
 
-To activate the usermod, add the following line to your platformio_override.ini
+To activate the usermod, add the following line to your legacy firmware override file
 `custom_usermods = tetrisai_v2`
-The effect will then become available under the name 'Tetris AI'. If you are running out of flash memory, use a different memory layout (e.g. [WLED_ESP32_4MB_256KB_FS.csv](https://github.com/wled-dev/WLED/blob/main/tools/WLED_ESP32_4MB_256KB_FS.csv)).
+The effect will then become available under the name 'Tetris AI'.
 
-If needed simply add to `platformio_override.ini`:
-
-```ini
-board_build.partitions = tools/WLED_ESP32_4MB_256KB_FS.csv
-```
+The old firmware-specific flash-layout instructions have been removed from this native-only repository.
 
 ## Usage
 

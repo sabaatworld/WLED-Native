@@ -259,7 +259,7 @@ static MyUsermod myUsermod;
 REGISTER_USERMOD(myUsermod);
 ```
 
-refer to detailed examples in `usermods/EXAMPLE/`, `usermods/user_fx/` and [in the user documentation for custom features](https://kno.wled.ge/advanced/custom-features/).
+refer to detailed examples in `usermods/EXAMPLE/`, `usermods/usermod_v2_auto_save/`, `usermods/user_fx/` and [in the user documentation for custom features](https://kno.wled.ge/advanced/custom-features/).
 
 ### Usermod `loop()`
 

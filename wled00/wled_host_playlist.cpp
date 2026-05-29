@@ -6,6 +6,7 @@ namespace {
 
 uint32_t hostMillis = 0;
 std::vector<byte> appliedPlaylistPresets;
+std::function<bool(byte)> playlistApplyCallback;
 
 } // namespace
 
@@ -33,6 +34,7 @@ void advanceHostMillis(uint32_t deltaMs) {
 bool applyPresetFromPlaylist(byte index) {
   appliedPlaylistPresets.push_back(index);
   currentPreset = index;
+  if (playlistApplyCallback) return playlistApplyCallback(index);
   return true;
 }
 
@@ -51,6 +53,10 @@ void resetHostPlaylistState() {
 
 const std::vector<byte>& getAppliedPlaylistPresets() {
   return appliedPlaylistPresets;
+}
+
+void setHostPlaylistApplyCallback(std::function<bool(byte)> callback) {
+  playlistApplyCallback = std::move(callback);
 }
 
 #endif // !ARDUINO

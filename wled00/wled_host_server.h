@@ -23,6 +23,11 @@ public:
   ~HostServer();
 
   bool start(const HostServerOptions& options, std::string& error);
+  bool inspectJson(const HostServerOptions& options, const std::string& target, std::string& output, std::string& error);
+  bool renderRoute(const HostServerOptions& options, const std::string& path, std::string& contentType, std::string& output, std::string& error);
+  bool applySettings(const HostServerOptions& options, const std::string& logicalPath, const std::string& encodedBody, std::string& error);
+  bool applyJson(const HostServerOptions& options, const std::string& logicalPath, const std::string& body, std::string& output, std::string& error);
+  bool stageUpdate(const HostServerOptions& options, const std::string& fileName, const std::string& body, std::string& error);
   int port() const;
   std::string listeningUrl() const;
   void runUntilStopped(const std::atomic<bool>& stopRequested);

@@ -1153,7 +1153,7 @@
 
 -   Fixed display of usermod values in info screen
 -   4 more effects now use FRAMETIME
--   Remove unsupported environments from platformio.ini
+-   Remove unsupported environments from legacy firmware config
 
 #### Build 2012210
 
@@ -1272,7 +1272,7 @@
 
 #### Build 2011180
 
--   Platformio.ini updates and streamlining (PR #1266)
+-   Legacy firmware config updates and streamlining (PR #1266)
 -   my_config.h custom compile settings system (not yet used for much, adapted from PR #1266)
 -   Added Hawaii timezone (HST)
 -   Linebreak after 5 quick select buttons
@@ -1424,7 +1424,7 @@
 
 #### Build 2008250
 
--   Made `platformio_override.ini` example easier to use by including the `default_envs` property
+-   Made `legacy firmware override file` example easier to use by including the `default_envs` property
 -   FastLED uses `now` as timer, so effects using e.g. `beatsin88()` will sync correctly
 -   Extended the speed range of Pacifica effect
 -   Improved TPM2.net receiving (#1100)
@@ -1507,11 +1507,11 @@
 #### Build 2005100
 
 -   Update to Espalexa v2.4.6 (+1.6kB free heap memory)
--   Added `m5atom` PlatformIO environment
+-   Added `m5atom` legacy firmware build environment
 
 #### Build 2005090
 
--   Default to ESP8266 Arduino core v2.7.1 in PlatformIO
+-   Default to ESP8266 Arduino core v2.7.1 in legacy firmware build
 -   Fixed Preset Slot 16 always indicating as empty (#891)
 -   Disabled Alexa emulation by default (causes bootloop for some users)
 -   Added BWLT11 and SHOJO_PCB defines to NpbWrapper
@@ -1566,7 +1566,7 @@
 #### Build 2004120
 
 -   Added Art-Net support
--   Added OTA platform to platformio.ini
+-   Added OTA platform to legacy firmware config
 
 #### Build 2004100
 
@@ -1625,4 +1625,3 @@
 
 -   Created changelog.md - make tracking changes to code easier
 -   Merged pull request #766 by @pille: Fix E1.31 out-of sequence detection
-

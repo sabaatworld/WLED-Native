@@ -17,7 +17,7 @@ Multiple Effects can be specified inside this single usermod, as we will illustr
 
 ## Installation
 
-To activate the usermod, add the following line to your platformio_override.ini
+To activate the usermod, add the following line to your legacy firmware override file
 ```ini
 custom_usermods = user_fx
 ```

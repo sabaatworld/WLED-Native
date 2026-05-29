@@ -20,7 +20,7 @@ The LEDs should be wired in a clockwise orientation starting in the middle of bo
 
 ## Installation 
 
-Add `boblight` to `custom_usermods` in your PlatformIO environment.
+Add `boblight` to `custom_usermods` in your legacy firmware build environment.
 
 ## Configuration
 

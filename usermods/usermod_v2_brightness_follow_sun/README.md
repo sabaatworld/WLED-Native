@@ -8,7 +8,7 @@ This UserMod will adjust brightness from sunrise to sunset, reaching maximum bri
 
 define `USERMOD_BRIGHTNESS_FOLLOW_SUN` e.g. `#define USERMOD_BRIGHTNESS_FOLLOW_SUN` in my_config.h
 
-or add `-D USERMOD_BRIGHTNESS_FOLLOW_SUN` to `build_flags` in platformio_override.ini
+or add `-D USERMOD_BRIGHTNESS_FOLLOW_SUN` to `build_flags` in legacy firmware override file
 
 ### Options
 
@@ -24,7 +24,7 @@ Open Usermod Settings in WLED to change settings:
 
 `Relax Hour` - The unit is in hours, with an effective range of 0-6. According to the settings, maintain the lowest brightness for 0-6 hours before sunrise and after sunset.
 
-### PlatformIO requirements
+### legacy firmware build requirements
 
 No special requirements.
 

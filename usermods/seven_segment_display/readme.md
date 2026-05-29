@@ -5,7 +5,7 @@ This has only been tested on a single configuration. Colon support has _not_ bee
 
 ## Installation
 
-Add the compile-time option `-D USERMOD_SEVEN_SEGMENT` to your `platformio.ini` (or `platformio_override.ini`) or use `#define USERMOD_SEVEN_SEGMENT` in `my_config.h`.
+Add the compile-time option `-D USERMOD_SEVEN_SEGMENT` to your `legacy firmware config` (or `legacy firmware override file`) or use `#define USERMOD_SEVEN_SEGMENT` in `my_config.h`.
 
 ## Settings
 Settings can be controlled via both the usermod setting page and through MQTT with a raw payload.

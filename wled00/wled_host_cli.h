@@ -19,6 +19,11 @@ struct HostCliOptions {
   std::string deletePath;
   std::string comparePathSpec;
   std::string validatePath;
+  std::string dumpJsonTarget;
+  std::string dumpRouteTarget;
+  std::string applySettingsSpec;
+  std::string applyJsonSpec;
+  std::string stageUpdateFile;
   std::string backupPath;
   std::string restorePath;
   std::string hasBackupPath;

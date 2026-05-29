@@ -17,6 +17,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -206,6 +207,38 @@ bool parsePlaylistRunSpec(const std::string& spec, std::string& playlistPath, ui
   return true;
 }
 
+bool parseApplySettingsSpec(const std::string& spec, std::string& logicalPath, std::string& encodedBody) {
+  const size_t separator = spec.find(':');
+  if (separator == std::string::npos) {
+    std::cerr << "Invalid value for --apply-settings: " << spec << '\n';
+    return false;
+  }
+
+  logicalPath = spec.substr(0, separator);
+  encodedBody = spec.substr(separator + 1);
+  if (logicalPath.empty() || logicalPath[0] != '/' || encodedBody.empty()) {
+    std::cerr << "Invalid value for --apply-settings: " << spec << '\n';
+    return false;
+  }
+  return true;
+}
+
+bool parseApplyJsonSpec(const std::string& spec, std::string& logicalPath, std::string& body) {
+  const size_t separator = spec.find(':');
+  if (separator == std::string::npos) {
+    std::cerr << "Invalid value for --apply-json: " << spec << '\n';
+    return false;
+  }
+
+  logicalPath = spec.substr(0, separator);
+  body = spec.substr(separator + 1);
+  if (logicalPath.empty() || logicalPath[0] != '/' || body.empty()) {
+    std::cerr << "Invalid value for --apply-json: " << spec << '\n';
+    return false;
+  }
+  return true;
+}
+
 struct HostRuntimeState {
   HostStorageLayout storage;
   std::string instanceId;
@@ -216,7 +249,9 @@ std::atomic<bool> g_stopRequested = false;
 bool hasCommandAction(const HostCliOptions& options) {
   return !options.resolvePath.empty() || !options.readPath.empty() || !options.copyPathSpec.empty() || !options.renamePathSpec.empty() ||
          !options.deletePath.empty() || !options.comparePathSpec.empty() || !options.validatePath.empty() || !options.backupPath.empty() ||
-         !options.restorePath.empty() || !options.hasBackupPath.empty() || options.listFiles || !options.blendColorSpec.empty() ||
+         !options.restorePath.empty() || !options.hasBackupPath.empty() || options.listFiles || !options.dumpJsonTarget.empty() || !options.dumpRouteTarget.empty() ||
+         !options.applySettingsSpec.empty() || !options.applyJsonSpec.empty() || !options.stageUpdateFile.empty() ||
+         !options.blendColorSpec.empty() ||
          !options.addColorSpec.empty() || !options.fadeColorSpec.empty() || !options.prngSequenceSpec.empty() || !options.playlistRunSpec.empty() ||
          options.initPresets || !options.presetNameSpec.empty() || !options.deletePresetSpec.empty() || options.backupConfig ||
          options.restoreConfig || options.verifyConfig || options.resetConfig || options.hasConfigBackup || options.verifySecrets;
@@ -425,6 +460,110 @@ int runWledHost(int argc, char** argv) {
     for (const std::string& fileName : fileNames) {
       std::cout << " - " << fileName << '\n';
     }
+  }
+
+  if (!parseResult.options.stageUpdateFile.empty()) {
+    std::ifstream input(parseResult.options.stageUpdateFile, std::ios::binary);
+    if (!input.is_open()) {
+      std::cerr << "Unable to read update file: " << parseResult.options.stageUpdateFile << '\n';
+      return 1;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+    const std::string fileName = std::filesystem::path(parseResult.options.stageUpdateFile).filename().string();
+    if (!server.stageUpdate(serverOptions, fileName, buffer.str(), error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+    std::cout << "Staged update file: " << fileName << '\n';
+  }
+
+  if (!parseResult.options.applySettingsSpec.empty()) {
+    std::string logicalPath;
+    std::string encodedBody;
+    if (!parseApplySettingsSpec(parseResult.options.applySettingsSpec, logicalPath, encodedBody)) return 1;
+
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+    if (!server.applySettings(serverOptions, logicalPath, encodedBody, error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+    std::cout << "Applied settings: " << logicalPath << '\n';
+  }
+
+  if (!parseResult.options.applyJsonSpec.empty()) {
+    std::string logicalPath;
+    std::string body;
+    if (!parseApplyJsonSpec(parseResult.options.applyJsonSpec, logicalPath, body)) return 1;
+
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+    std::string jsonOutput;
+    if (!server.applyJson(serverOptions, logicalPath, body, jsonOutput, error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+    std::cout << "Applied JSON: " << logicalPath << '\n';
+    std::cout << jsonOutput << '\n';
+  }
+
+  if (!parseResult.options.dumpJsonTarget.empty()) {
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+    std::string jsonOutput;
+    if (!server.inspectJson(serverOptions, parseResult.options.dumpJsonTarget, jsonOutput, error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+    std::cout << "JSON target: " << parseResult.options.dumpJsonTarget << '\n';
+    std::cout << jsonOutput << '\n';
+  }
+
+  if (!parseResult.options.dumpRouteTarget.empty()) {
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+    std::string routeOutput;
+    std::string contentType;
+    if (!server.renderRoute(serverOptions, parseResult.options.dumpRouteTarget, contentType, routeOutput, error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+    std::cout << "Route target: " << parseResult.options.dumpRouteTarget << '\n';
+    std::cout << routeOutput << '\n';
   }
 
   if (!parseResult.options.blendColorSpec.empty()) {

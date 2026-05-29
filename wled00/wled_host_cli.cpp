@@ -21,7 +21,9 @@ const char* kVersionString = WLED_HOST_VERSION;
 
 bool requiresValue(const std::string& arg) {
   return arg == "--config-dir" || arg == "--host" || arg == "--port" || arg == "--log-level" || arg == "--resolve-path" || arg == "--read-file" || arg == "--copy-file" ||
-         arg == "--rename-file" || arg == "--delete-file" || arg == "--compare-files" || arg == "--validate-json" || arg == "--backup-file" || arg == "--restore-file" ||
+         arg == "--rename-file" || arg == "--delete-file" || arg == "--compare-files" || arg == "--validate-json" || arg == "--dump-json" || arg == "--dump-route" ||
+         arg == "--apply-settings" || arg == "--apply-json" || arg == "--stage-update-file" ||
+         arg == "--backup-file" || arg == "--restore-file" ||
          arg == "--has-backup" || arg == "--blend-color" || arg == "--add-color" || arg == "--fade-color" || arg == "--prng-seq" || arg == "--playlist-run" || arg == "--preset-name" ||
          arg == "--delete-preset";
 }
@@ -65,6 +67,26 @@ bool assignOptionValue(HostCliOptions& options, const std::string& arg, const st
   }
   if (arg == "--validate-json") {
     options.validatePath = value;
+    return true;
+  }
+  if (arg == "--dump-json") {
+    options.dumpJsonTarget = value;
+    return true;
+  }
+  if (arg == "--dump-route") {
+    options.dumpRouteTarget = value;
+    return true;
+  }
+  if (arg == "--apply-settings") {
+    options.applySettingsSpec = value;
+    return true;
+  }
+  if (arg == "--apply-json") {
+    options.applyJsonSpec = value;
+    return true;
+  }
+  if (arg == "--stage-update-file") {
+    options.stageUpdateFile = value;
     return true;
   }
   if (arg == "--backup-file") {
@@ -220,6 +242,11 @@ void printHostCliHelp(std::ostream& out) {
     << "  --delete-file <path>  Delete a WLED logical file path inside the config root\n\n"
     << "  --compare-files <a:b> Compare two WLED logical file paths inside the config root\n"
     << "  --validate-json <p>   Validate a WLED logical JSON file inside the config root\n"
+    << "  --dump-json <name>    Print native JSON payload for one of: info, state, si, all, effects, palettes, pal, palx[:page], live, cfg, net, pins, nodes\n"
+    << "  --dump-route <path>   Render one native GET route body without starting the server\n"
+    << "  --apply-settings <p:b> Apply a WLED form post body b to settings path p without starting the server\n"
+    << "  --apply-json <p:b>    Apply a WLED JSON POST body b to JSON path p without starting the server\n"
+    << "  --stage-update-file <path> Stage one native package/update artifact inside the config root\n"
     << "  --backup-file <path>  Create a WLED backup file named bkp.<path>\n"
     << "  --restore-file <path> Restore a WLED backup file named bkp.<path>\n"
     << "  --has-backup <path>   Check whether a WLED backup file named bkp.<path> exists\n"

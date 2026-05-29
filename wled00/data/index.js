@@ -1096,6 +1096,7 @@ function generateListItemHtml(listName, id, name, clickAction, extraHtml = '', e
 function btype(b)
 {
 	switch (b) {
+		case 0: return "Native";
 		case 2:
 		case 32: return "ESP32";
 		case 3:

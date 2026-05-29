@@ -13,7 +13,7 @@ The API is described in the Smartnest [Github repo](https://github.com/aososam/S
 
 ## Usermod installation
 
-1. Use `#define USERMOD_SMARTNEST` in wled.h or `-D USERMOD_SMARTNEST` in your platformio.ini (recommended).
+1. Use `#define USERMOD_SMARTNEST` in wled.h or `-D USERMOD_SMARTNEST` in your legacy firmware config (recommended).
 
 ## Configuration
 

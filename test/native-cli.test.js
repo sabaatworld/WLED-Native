@@ -79,6 +79,42 @@ function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function parseDumpedJson(output) {
+  let jsonText = output.slice(output.indexOf('JSON target:'));
+  jsonText = jsonText.split('\n').slice(1).join('\n').trim();
+  return JSON.parse(jsonText);
+}
+
+function parseDumpedRoute(output) {
+  let routeText = output.slice(output.indexOf('Route target:'));
+  routeText = routeText.split('\n').slice(1).join('\n').trim();
+  return routeText;
+}
+
+function parseAppliedJson(output) {
+  let jsonText = output.slice(output.indexOf('Applied JSON:'));
+  jsonText = jsonText.split('\n').slice(1).join('\n').trim();
+  return JSON.parse(jsonText);
+}
+
+function waitForSocketMessage(socket, predicate, errorMessage) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.removeEventListener('message', onMessage);
+      reject(new Error(errorMessage));
+    }, 5000);
+
+    function onMessage(event) {
+      if (!predicate(event.data)) return;
+      clearTimeout(timeout);
+      socket.removeEventListener('message', onMessage);
+      resolve(event.data);
+    }
+
+    socket.addEventListener('message', onMessage);
+  });
+}
+
 function blendColor(color1, color2, blend) {
   const twoChannelMask = 0x00FF00FF;
   const rb1 = color1 & twoChannelMask;
@@ -184,6 +220,8 @@ test('native wrapper prints WLED help text', () => {
   assert.match(result.stdout, /--fade-color/);
   assert.match(result.stdout, /--prng-seq/);
   assert.match(result.stdout, /--playlist-run/);
+  assert.match(result.stdout, /--dump-json/);
+  assert.match(result.stdout, /--apply-json/);
   assert.match(result.stdout, /--init-presets/);
   assert.match(result.stdout, /--preset-name/);
   assert.match(result.stdout, /--delete-preset/);
@@ -249,8 +287,92 @@ test('native wrapper serves HTTP routes in default server mode', async () => {
     assert.equal(combinedResponse.status, 200);
     const combined = await combinedResponse.json();
     assert.equal(combined.info.mac, info.mac);
+    assert.deepEqual(combined.info.um, [9]);
     assert.equal(combined.state.on, true);
     assert.equal(combined.state.seg[0].fx, 0);
+    assert.equal(combined.state.Autosave.enabled, true);
+
+    const settingsResponse = await fetch(`${server.listeningUrl}/settings`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(settingsResponse.status, 200);
+    assert.match(await settingsResponse.text(), /WLED Settings/);
+
+    const wifiSettingsResponse = await fetch(`${server.listeningUrl}/settings/wifi`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(wifiSettingsResponse.status, 200);
+    assert.match(await wifiSettingsResponse.text(), /WiFi Settings/);
+
+    const securitySettingsResponse = await fetch(`${server.listeningUrl}/settings/sec`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(securitySettingsResponse.status, 200);
+    assert.match(await securitySettingsResponse.text(), /Security & Update Setup/);
+
+    const settingsScriptResponse = await fetch(`${server.listeningUrl}/settings/s.js?p=1`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(settingsScriptResponse.status, 200);
+    assert.match(settingsScriptResponse.headers.get('content-type') || '', /javascript/);
+    assert.match(await settingsScriptResponse.text(), /function GetV\(\)/);
+
+    const networkResponse = await fetch(`${server.listeningUrl}/json/net`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(networkResponse.status, 200);
+    const networkPayload = await networkResponse.json();
+    assert.equal(Array.isArray(networkPayload.networks), true);
+
+    const pinsResponse = await fetch(`${server.listeningUrl}/json/pins`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(pinsResponse.status, 200);
+    const pinsPayload = await pinsResponse.json();
+    assert.equal(Array.isArray(pinsPayload.pins), true);
+    assert.ok(pinsPayload.pins.length >= 8);
+
+    const presetsResponse = await fetch(`${server.listeningUrl}/presets.json`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(presetsResponse.status, 200);
+    assert.deepEqual(await presetsResponse.json(), { '0': {} });
+
+    const cfgResponse = await fetch(`${server.listeningUrl}/json/cfg`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(cfgResponse.status, 200);
+    const cfg = await cfgResponse.json();
+    assert.equal(cfg.um.Autosave.enabled, true);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native autosave usermod saves a preset after state changes settle', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    fs.writeFileSync(path.join(configDir, 'instance-id'), 'AA:BB:CC:DD:EE:01\n');
+    fs.writeFileSync(
+      path.join(configDir, 'cfg.json'),
+      JSON.stringify({
+        um: {
+          Autosave: {
+            enabled: true,
+            autoSaveAfterSec: 1,
+            autoSavePreset: 249,
+            autoSaveApplyOnBoot: false,
+            autoSaveIgnorePresets: false
+          }
+        }
+      })
+    );
+
+    server = await startNativeServer(configDir);
+
+    const saveResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bri: 66, seg: { fx: 3, pal: 5 } }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(saveResponse.status, 200);
+
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+
+    const presetsResponse = await fetch(`${server.listeningUrl}/presets.json`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(presetsResponse.status, 200);
+    const presets = await presetsResponse.json();
+    assert.equal(presets['249'].bri, 66);
+    assert.equal(presets['249'].seg[0].fx, 3);
+    assert.equal(presets['249'].seg[0].pal, 5);
   } finally {
     if (server) await server.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
@@ -320,8 +442,979 @@ test('native wrapper accepts HTTP and WebSocket state updates in server mode', a
     const finalState = await finalStateResponse.json();
     assert.equal(finalState.on, true);
     assert.equal(finalState.bri, 99);
+
+    const colorResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seg: { col: [[12, 34, 56], [1, 2, 3], [4, 5, 6, 7]] } }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(colorResponse.status, 200);
+    const colorState = await colorResponse.json();
+    assert.deepEqual(colorState.state.seg[0].col, [[12, 34, 56, 0], [1, 2, 3, 0], [4, 5, 6, 7]]);
+
+    const segmentResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seg: { fx: 7, pal: 9, sx: 111, ix: 222, bri: 77 } }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(segmentResponse.status, 200);
+    const segmentState = await segmentResponse.json();
+    assert.equal(segmentState.state.seg[0].fx, 7);
+    assert.equal(segmentState.state.seg[0].pal, 9);
+    assert.equal(segmentState.state.seg[0].sx, 111);
+    assert.equal(segmentState.state.seg[0].ix, 222);
+    assert.equal(segmentState.state.seg[0].bri, 77);
+
+    socket.binaryType = 'arraybuffer';
+    socket.send(JSON.stringify({ v: true }));
+    const verboseMessage = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for WebSocket verbose response')), 5000);
+      socket.addEventListener('message', (event) => {
+        clearTimeout(timeout);
+        resolve(JSON.parse(event.data));
+      }, { once: true });
+    });
+    assert.equal(verboseMessage.state.on, true);
+    assert.equal(verboseMessage.state.bri, 99);
+
+    socket.send(JSON.stringify({ lv: true }));
+    const liveViewAck = await waitForSocketMessage(socket, (data) => data === '{"success":true}', 'Timed out waiting for WebSocket live-view ack');
+    assert.equal(liveViewAck, '{"success":true}');
+
+    const liveViewFrame = await waitForSocketMessage(socket, (data) => data instanceof ArrayBuffer, 'Timed out waiting for WebSocket live-view frame');
+    assert.ok(liveViewFrame instanceof ArrayBuffer, `Expected ArrayBuffer live-view frame, got ${typeof liveViewFrame}`);
+    const liveViewBytes = new Uint8Array(liveViewFrame);
+    assert.equal(liveViewBytes[0], 'L'.charCodeAt(0));
+    assert.equal(liveViewBytes[1], 1);
+    assert.equal(liveViewBytes[2], 1);
+    assert.equal(liveViewBytes[3], 3);
+    assert.equal(liveViewBytes[4], 6);
+
+    socket.send('p');
+    const pongMessage = await waitForSocketMessage(socket, (data) => data === 'pong', 'Timed out waiting for WebSocket pong response');
+    assert.equal(pongMessage, 'pong');
   } finally {
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper persists native settings posts into cfg-backed responses', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    server = await startNativeServer(configDir);
+
+    const formBody = new URLSearchParams({
+      DS: 'Desk Controller',
+      SU: 'on'
+    });
+
+    const saveResponse = await fetch(`${server.listeningUrl}/settings/ui`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded'
+      },
+      body: formBody,
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(saveResponse.status, 200);
+    assert.match(await saveResponse.text(), /saved/i);
+
+    const cfgResponse = await fetch(`${server.listeningUrl}/json/cfg`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(cfgResponse.status, 200);
+    const cfg = await cfgResponse.json();
+    assert.equal(cfg.id.name, 'Desk Controller');
+    assert.equal(cfg.ui.simplified, true);
+
+    const settingsScriptResponse = await fetch(`${server.listeningUrl}/settings/s.js?p=3`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(settingsScriptResponse.status, 200);
+    const settingsScript = await settingsScriptResponse.text();
+    assert.match(settingsScript, /Desk Controller/);
+    assert.match(settingsScript, /\.checked=true/);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper round-trips implemented settings pages through cfg, settings scripts, and restart', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    server = await startNativeServer(configDir);
+
+    const posts = [
+      ['/settings/wifi', new URLSearchParams({
+        CM: 'desk-native',
+        AS: 'Desk AP',
+        AC: '11',
+        D0: '1',
+        D1: '1',
+        D2: '1',
+        D3: '1'
+      })],
+      ['/settings/leds', new URLSearchParams({
+        LC0: '144',
+        TD: '25',
+        CA: '201'
+      })],
+      ['/settings/sync', new URLSearchParams({
+        UP: '3333',
+        U2: '3334',
+        UR: '2',
+        EP: '4048',
+        EU: '77',
+        DA: '12',
+        XX: '5',
+        PY: '101',
+        DM: '3',
+        ET: '900',
+        WO: '-7',
+        NL: 'on'
+      })],
+      ['/settings/time', new URLSearchParams({
+        NS: 'time.example.org',
+        TZ: '4',
+        UO: '-28800',
+        LT: '-33.86',
+        LN: '-151.21'
+      })],
+      ['/settings/sec', new URLSearchParams({
+        PIN: '4321',
+        OW: 'on',
+        AO: 'on'
+      })]
+    ];
+
+    for (const [route, body] of posts) {
+      const response = await fetch(`${server.listeningUrl}${route}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded'
+        },
+        body,
+        signal: AbortSignal.timeout(5000)
+      });
+      assert.equal(response.status, 200, `${route} failed: ${await response.text()}`);
+    }
+
+    let cfgResponse = await fetch(`${server.listeningUrl}/json/cfg`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(cfgResponse.status, 200);
+    let cfg = await cfgResponse.json();
+    assert.equal(cfg.host.wifi.mdns, 'desk-native');
+    assert.equal(cfg.host.wifi.apSsid, 'Desk AP');
+    assert.equal(cfg.host.wifi.apChannel, 11);
+    assert.deepEqual(cfg.host.wifi.dns, [1, 1, 1, 1]);
+    assert.equal(cfg.host.led.count, 144);
+    assert.equal(cfg.host.led.transition, 25);
+    assert.equal(cfg.host.led.brightness, 201);
+    assert.equal(cfg.host.sync.udpPort, 3333);
+    assert.equal(cfg.host.sync.udpPort2, 3334);
+    assert.equal(cfg.host.sync.udpRetries, 2);
+    assert.equal(cfg.host.sync.realtimePort, 4048);
+    assert.equal(cfg.host.sync.realtimeUniverse, 77);
+    assert.equal(cfg.host.sync.dmxAddress, 12);
+    assert.equal(cfg.host.sync.dmxSpacing, 5);
+    assert.equal(cfg.host.sync.e131Priority, 101);
+    assert.equal(cfg.host.sync.dmxMode, 3);
+    assert.equal(cfg.host.sync.realtimeTimeoutMs, 900);
+    assert.equal(cfg.host.sync.realtimeOffset, -7);
+    assert.equal(cfg.host.sync.nodeListEnabled, true);
+    assert.equal(cfg.host.sync.nodeBroadcastEnabled, false);
+    assert.equal(cfg.host.time.ntpServer, 'time.example.org');
+    assert.equal(cfg.host.time.timezone, 4);
+    assert.equal(cfg.host.time.utcOffsetSeconds, -28800);
+    assert.equal(cfg.host.time.latitude, '-33.86');
+    assert.equal(cfg.host.time.longitude, '-151.21');
+    assert.equal(cfg.host.security.pin, '4321');
+    assert.equal(cfg.host.security.otaLock, false);
+    assert.equal(cfg.host.security.wifiLock, true);
+    assert.equal(cfg.host.security.arduinoOta, true);
+    assert.equal(cfg.host.security.otaSameSubnet, false);
+
+    const infoResponse = await fetch(`${server.listeningUrl}/json/info`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(infoResponse.status, 200);
+    const info = await infoResponse.json();
+    assert.equal(info.name, 'WLED Native');
+
+    const stateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(stateResponse.status, 200);
+    const state = await stateResponse.json();
+    assert.equal(state.bri, 201);
+    assert.equal(state.transition, 25);
+    assert.equal(state.seg[0].len, 144);
+
+    const wifiScript = await (await fetch(`${server.listeningUrl}/settings/s.js?p=1`, { signal: AbortSignal.timeout(5000) })).text();
+    assert.match(wifiScript, /desk-native/);
+    assert.match(wifiScript, /Desk AP/);
+    assert.match(wifiScript, /1"\]\.value="1"/);
+
+    const ledsScript = await (await fetch(`${server.listeningUrl}/settings/s.js?p=2`, { signal: AbortSignal.timeout(5000) })).text();
+    assert.match(ledsScript, /"LC0"\]\.value="144"/);
+    assert.match(ledsScript, /"TD"\]\.value="25"/);
+    assert.match(ledsScript, /"CA"\]\.value="201"/);
+
+    const syncScript = await (await fetch(`${server.listeningUrl}/settings/s.js?p=4`, { signal: AbortSignal.timeout(5000) })).text();
+    assert.match(syncScript, /"UP"\]\.value="3333"/);
+    assert.match(syncScript, /"WO"\]\.value="-7"/);
+    assert.match(syncScript, /"NL"\]\.checked=true/);
+    assert.match(syncScript, /"NB"\]\.checked=false/);
+
+    const timeScript = await (await fetch(`${server.listeningUrl}/settings/s.js?p=5`, { signal: AbortSignal.timeout(5000) })).text();
+    assert.match(timeScript, /time\.example\.org/);
+    assert.match(timeScript, /"UO"\]\.value="-28800"/);
+    assert.match(timeScript, /"LT"\]\.value="-33\.86"/);
+    assert.match(timeScript, /"LN"\]\.value="-151\.21"/);
+    assert.match(timeScript, /updLatLon\(\)/);
+
+    const securityScript = await (await fetch(`${server.listeningUrl}/settings/s.js?p=6`, { signal: AbortSignal.timeout(5000) })).text();
+    assert.match(securityScript, /"PIN"\]\.value="4321"/);
+    assert.match(securityScript, /"NO"\]\.checked=false/);
+    assert.match(securityScript, /"OW"\]\.checked=true/);
+    assert.match(securityScript, /"AO"\]\.checked=true/);
+    assert.match(securityScript, /"SU"\]\.checked=false/);
+
+    await server.stop();
+    server = await startNativeServer(configDir);
+
+    cfgResponse = await fetch(`${server.listeningUrl}/json/cfg`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(cfgResponse.status, 200);
+    cfg = await cfgResponse.json();
+    assert.equal(cfg.host.wifi.mdns, 'desk-native');
+    assert.equal(cfg.host.led.count, 144);
+    assert.equal(cfg.host.sync.realtimeOffset, -7);
+    assert.equal(cfg.host.time.latitude, '-33.86');
+    assert.equal(cfg.host.security.pin, '4321');
+
+    const restartedStateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(restartedStateResponse.status, 200);
+    const restartedState = await restartedStateResponse.json();
+    assert.equal(restartedState.bri, 201);
+    assert.equal(restartedState.transition, 25);
+    assert.equal(restartedState.seg[0].len, 144);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper applies persisted presets through the JSON state API', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    fs.writeFileSync(
+      path.join(configDir, 'presets.json'),
+      JSON.stringify({
+        0: {},
+        1: {
+          n: 'Focus',
+          on: false,
+          bri: 42,
+          transition: 11,
+          seg: [{ fx: 0, pal: 0 }]
+        }
+      })
+    );
+
+    server = await startNativeServer(configDir);
+
+    const presetResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ ps: 1 }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(presetResponse.status, 200);
+    const presetState = await presetResponse.json();
+    assert.equal(presetState.state.ps, 1);
+    assert.equal(presetState.state.on, false);
+    assert.equal(presetState.state.bri, 42);
+    assert.equal(presetState.state.transition, 11);
+
+    const stateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(stateResponse.status, 200);
+    const state = await stateResponse.json();
+    assert.equal(state.ps, 1);
+    assert.equal(state.on, false);
+    assert.equal(state.bri, 42);
+    assert.equal(state.transition, 11);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper dumps browser-facing JSON payloads without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    fs.writeFileSync(
+      path.join(configDir, 'cfg.json'),
+      JSON.stringify({
+        id: { name: 'Native Dump' },
+        def: { ps: 4 }
+      })
+    );
+    fs.writeFileSync(
+      path.join(configDir, 'presets.json'),
+      JSON.stringify({
+        0: {},
+        4: {
+          n: 'Booted',
+          on: true,
+          bri: 77,
+          transition: 12,
+          seg: [{ fx: 2, pal: 3 }]
+        }
+      })
+    );
+
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'all']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.info.name, 'Native Dump');
+    assert.equal(payload.info.leds.bootps, 4);
+    assert.equal(payload.info.leds.maxseg >= 1, true);
+    assert.equal(Array.isArray(payload.info.leds.seglc), true);
+    assert.equal(typeof payload.info.str, 'boolean');
+    assert.equal(payload.state.ps, 4);
+    assert.equal(payload.state.bri, 77);
+    assert.deepEqual(payload.state.udpn, { send: false, recv: false, sgrp: 0, rgrp: 0 });
+    assert.ok(Array.isArray(payload.effects));
+    assert.ok(payload.effects.length > 20);
+    assert.ok(Array.isArray(payload.palettes));
+    assert.ok(payload.palettes.length > 10);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'palx:0']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.m >= 0, true);
+    assert.ok(payload.p['0']);
+    assert.ok(payload.p['5']);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'live']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload.leds), true);
+    assert.equal(payload.leds.length, 30);
+    assert.match(payload.leds[0], /^[0-9A-F]{6}$/);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper restores custom palette browser contracts without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    fs.writeFileSync(
+      path.join(configDir, 'palette0.json'),
+      JSON.stringify({
+        palette: [0, 255, 0, 0, 255, 0, 0, 255]
+      })
+    );
+    fs.writeFileSync(
+      path.join(configDir, 'palette2.json'),
+      JSON.stringify({
+        palette: [0, '112233', 128, '445566', 255, '778899']
+      })
+    );
+
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'info']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.cpalcount, 3);
+    assert.equal(payload.cpalmax >= 3, true);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'pal']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload), true);
+    assert.equal(payload[0], 'Default');
+    assert.ok(payload.length > 10);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'palx:999']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.ok(payload.p['200']);
+    assert.ok(payload.p['199']);
+    assert.ok(payload.p['198']);
+    assert.equal(payload.p['199'].length, 16);
+    assert.equal(payload.p['199'].every((stop) => stop[1] === 128 && stop[2] === 128 && stop[3] === 128), true);
+
+    result = runNativeCommand(['--config-dir', configDir, '--apply-json', '/json/state:{"rmcpal":2}']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseAppliedJson(result.stdout);
+    assert.equal(payload.info.cpalcount, 1);
+    assert.equal(fs.existsSync(path.join(configDir, 'palette2.json')), false);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'info']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.cpalcount, 1);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper supports legacy /edit query forms without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    fs.writeFileSync(path.join(configDir, 'alpha.json'), '{"alpha":1}\n', 'utf8');
+    fs.writeFileSync(path.join(configDir, 'notes.txt'), 'hello native\n', 'utf8');
+
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/edit?list=/']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = JSON.parse(parseDumpedRoute(result.stdout));
+    assert.equal(Array.isArray(payload), true);
+    assert.equal(payload.some((entry) => entry.name === '/alpha.json'), true);
+    assert.equal(payload.some((entry) => entry.name === '/notes.txt'), true);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/edit?edit=/notes.txt']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(parseDumpedRoute(result.stdout), 'hello native');
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/edit?download=/alpha.json']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(parseDumpedRoute(result.stdout), '{"alpha":1}');
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper applies usermod settings without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const body = new URLSearchParams({
+      'Autosave:enabled': 'false',
+      'Autosave:autoSaveAfterSec': '9',
+      'Autosave:autoSavePreset': '222',
+      'Autosave:autoSaveApplyOnBoot': 'true',
+      'Autosave:autoSaveIgnorePresets': 'false'
+    }).toString();
+
+    let result = runNativeCommand(['--config-dir', configDir, '--apply-settings', `/settings/um:${body}`, '--dump-json', 'cfg']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.um.Autosave.enabled, false);
+    assert.equal(payload.um.Autosave.autoSaveAfterSec, 9);
+    assert.equal(payload.um.Autosave.autoSavePreset, 222);
+    assert.equal(payload.um.Autosave.autoSaveApplyOnBoot, true);
+    assert.equal(payload.um.Autosave.autoSaveIgnorePresets, false);
+
+    const cfg = readJsonFile(path.join(configDir, 'cfg.json'));
+    assert.equal(cfg.um.Autosave.enabled, false);
+    assert.equal(cfg.um.Autosave.autoSaveAfterSec, 9);
+    assert.equal(cfg.um.Autosave.autoSavePreset, 222);
+    assert.equal(cfg.um.Autosave.autoSaveApplyOnBoot, true);
+    assert.equal(cfg.um.Autosave.autoSaveIgnorePresets, false);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'state']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.Autosave.enabled, false);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper applies DMX settings and renders DMX browser pages without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const body = new URLSearchParams({
+      PU: '12',
+      CN: '4',
+      CS: '20',
+      CG: '30',
+      SL: '2',
+      CH1: '1',
+      CH2: '2',
+      CH3: '3',
+      CH4: '5',
+      CH5: '6'
+    }).toString();
+
+    let result = runNativeCommand(['--config-dir', configDir, '--apply-settings', `/settings/dmx:${body}`, '--dump-json', 'cfg']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.host.dmx.proxyUniverse, 12);
+    assert.equal(payload.host.dmx.channelsPerFixture, 4);
+    assert.equal(payload.host.dmx.fixtureStartAddress, 20);
+    assert.equal(payload.host.dmx.fixtureSpacing, 30);
+    assert.equal(payload.host.dmx.startLed, 2);
+    assert.deepEqual(payload.host.dmx.fixtureMap.slice(0, 5), [1, 2, 3, 5, 6]);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/settings/s.js?p=7']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /"PU"\]\.value="12"/);
+    assert.match(routeText, /"CN"\]\.value="4"/);
+    assert.match(routeText, /"CS"\]\.value="20"/);
+    assert.match(routeText, /"CG"\]\.value="30"/);
+    assert.match(routeText, /"SL"\]\.value="2"/);
+    assert.match(routeText, /"CH1"\]\.value="1"/);
+    assert.match(routeText, /"CH4"\]\.value="5"/);
+    assert.match(routeText, /"CH5"\]\.value="6"/);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/dmxmap']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /var CH=\[1,2,3,5,6,/);
+    assert.match(routeText, /CN=4;/);
+    assert.match(routeText, /CS=20;/);
+    assert.match(routeText, /CG=30;/);
+    assert.match(routeText, /LC=30;/);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper applies 2D settings and renders the 2D settings page without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const body = new URLSearchParams({
+      SOMP: '1',
+      MPC: '2',
+      P0B: '1',
+      P0R: '0',
+      P0V: '1',
+      P0S: 'on',
+      P0W: '8',
+      P0H: '16',
+      P0X: '0',
+      P0Y: '0',
+      P1B: '0',
+      P1R: '1',
+      P1V: '0',
+      P1W: '8',
+      P1H: '16',
+      P1X: '8',
+      P1Y: '0'
+    }).toString();
+
+    let result = runNativeCommand(['--config-dir', configDir, '--apply-settings', `/settings/2D:${body}`, '--dump-json', 'cfg']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.host.matrix.enabled, true);
+    assert.equal(payload.host.matrix.panels.length, 2);
+    assert.deepEqual(payload.host.matrix.panels[0], {
+      bottomStart: 1,
+      rightStart: 0,
+      vertical: 1,
+      serpentine: true,
+      xOffset: 0,
+      yOffset: 0,
+      width: 8,
+      height: 16
+    });
+    assert.deepEqual(payload.host.matrix.panels[1], {
+      bottomStart: 0,
+      rightStart: 1,
+      vertical: 0,
+      serpentine: false,
+      xOffset: 8,
+      yOffset: 0,
+      width: 8,
+      height: 16
+    });
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/settings/s.js?p=10']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /"SOMP"\]\.value="1"/);
+    assert.match(routeText, /maxPanels=\d+;resetPanels\(\);/);
+    assert.match(routeText, /addPanel\(0\);/);
+    assert.match(routeText, /addPanel\(1\);/);
+    assert.match(routeText, /"PW"\]\.value="8"/);
+    assert.match(routeText, /"PH"\]\.value="16"/);
+    assert.match(routeText, /"MPC"\]\.value="2"/);
+    assert.match(routeText, /"P0B"\]\.value="1"/);
+    assert.match(routeText, /"P0S"\]\.checked=true/);
+    assert.match(routeText, /"P1R"\]\.value="1"/);
+    assert.match(routeText, /"P1X"\]\.value="8"/);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper stages and reverts host update packages without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const packagePath = path.join(configDir, 'WLED_1.2.3_native.pkg');
+    fs.writeFileSync(packagePath, 'native update payload');
+
+    let result = runNativeCommand(['--config-dir', configDir, '--stage-update-file', packagePath]);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Staged update file:/);
+
+    const stagedPackagePath = path.join(configDir, 'pending-update.bin');
+    const stagedMetadataPath = path.join(configDir, 'pending-update.json');
+    assert.equal(fs.readFileSync(stagedPackagePath, 'utf8'), 'native update payload');
+    const stagedMetadata = readJsonFile(stagedMetadataPath);
+    assert.equal(stagedMetadata.name, 'WLED_1.2.3_native.pkg');
+    assert.equal(stagedMetadata.size, 'native update payload'.length);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/update?revert']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /reverted/i);
+    assert.equal(fs.existsSync(stagedPackagePath), false);
+    assert.equal(fs.existsSync(stagedMetadataPath), false);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper dumps host network scan JSON without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const injectedScan = JSON.stringify({
+      networks: [
+        { ssid: 'Studio', rssi: -40, bssid: 'AA:BB:CC:DD:EE:01' },
+        { ssid: 'Backup', rssi: -67, bssid: 'AA:BB:CC:DD:EE:02' }
+      ]
+    });
+
+    const result = childProcess.spawnSync(nativeRunScript, ['--config-dir', configDir, '--dump-json', 'net'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, WLED_NATIVE_WIFI_SCAN_JSON: injectedScan }
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload.networks), true);
+    assert.equal(payload.networks.length, 2);
+    assert.equal(payload.networks[0].ssid, 'Studio');
+    assert.equal(payload.networks[0].rssi, -40);
+    assert.equal(payload.networks[1].bssid, 'AA:BB:CC:DD:EE:02');
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper dumps host pin info JSON without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'pins']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload.pins), true);
+    assert.ok(payload.pins.length >= 8);
+    assert.deepEqual(payload.pins[0], { p: 0, c: 0, a: false });
+    assert.deepEqual(payload.pins.at(-1), { p: 63, c: 0, a: false });
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper dumps host-discovered nodes without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+  const registryPath = path.join(configDir, 'native-nodes.json');
+
+  try {
+    fs.writeFileSync(path.join(configDir, 'instance-id'), 'AA:BB:CC:DD:EE:01\n');
+    fs.writeFileSync(
+      path.join(configDir, 'cfg.json'),
+      JSON.stringify({
+        id: { name: 'Desk Native' },
+        host: { sync: { nodeListEnabled: true } }
+      })
+    );
+
+    const now = Date.now();
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify({
+        entries: [
+          {
+            instanceId: 'AA:BB:CC:DD:EE:01',
+            name: 'Desk Native',
+            ip: '127.0.0.1',
+            port: 21324,
+            updatedAtMs: now,
+            type: 128,
+            vid: 1700000
+          },
+          {
+            instanceId: 'AA:BB:CC:DD:EE:02',
+            name: 'Kitchen Native',
+            ip: '127.0.0.1',
+            port: 21325,
+            updatedAtMs: now - 4000,
+            type: 128,
+            vid: 1700001
+          },
+          {
+            instanceId: 'AA:BB:CC:DD:EE:03',
+            name: 'Stale Native',
+            ip: '127.0.0.1',
+            port: 21326,
+            updatedAtMs: now - 120000,
+            type: 128,
+            vid: 1699999
+          }
+        ]
+      })
+    );
+
+    let result = childProcess.spawnSync(nativeRunScript, ['--config-dir', configDir, '--dump-json', 'nodes'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, WLED_NATIVE_NODE_REGISTRY_PATH: registryPath }
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload.nodes), true);
+    assert.equal(payload.nodes.length, 1);
+    assert.equal(payload.nodes[0].name, 'Kitchen Native');
+    assert.equal(payload.nodes[0].ip, '127.0.0.1:21325');
+    assert.equal(payload.nodes[0].vid, 1700001);
+    assert.equal(payload.nodes[0].type, 128);
+    assert.equal(payload.nodes[0].age >= 4, true);
+
+    result = childProcess.spawnSync(nativeRunScript, ['--config-dir', configDir, '--dump-json', 'info'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, WLED_NATIVE_NODE_REGISTRY_PATH: registryPath }
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    payload = parseDumpedJson(result.stdout);
+    assert.equal(payload.ndc, 1);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper applies boot presets on startup and persists boot preset changes', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    fs.writeFileSync(
+      path.join(configDir, 'cfg.json'),
+      JSON.stringify({
+        def: { ps: 2 }
+      })
+    );
+    fs.writeFileSync(
+      path.join(configDir, 'presets.json'),
+      JSON.stringify({
+        0: {},
+        2: {
+          n: 'Booted',
+          on: true,
+          bri: 33,
+          transition: 9,
+          seg: [{ fx: 4, pal: 6, sx: 88, ix: 144, bri: 201, col: [[4, 5, 6], [0, 0, 0], [0, 0, 0]] }]
+        }
+      })
+    );
+
+    server = await startNativeServer(configDir);
+
+    let infoResponse = await fetch(`${server.listeningUrl}/json/info`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(infoResponse.status, 200);
+    let info = await infoResponse.json();
+    assert.equal(info.leds.bootps, 2);
+
+    let stateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(stateResponse.status, 200);
+    let state = await stateResponse.json();
+    assert.equal(state.ps, 2);
+    assert.equal(state.bri, 33);
+    assert.equal(state.transition, 9);
+    assert.equal(state.seg[0].fx, 4);
+    assert.equal(state.seg[0].pal, 6);
+
+    const updateResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bri: 99, seg: { fx: 7, pal: 8 }, psave: 3, bootps: 3, n: 'Restart Me' }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(updateResponse.status, 200);
+
+    const cfg = readJsonFile(path.join(configDir, 'cfg.json'));
+    assert.equal(cfg.def.ps, 3);
+    const presets = readJsonFile(path.join(configDir, 'presets.json'));
+    assert.equal(presets['3'].n, 'Restart Me');
+    assert.equal(presets['3'].bri, 99);
+    assert.equal(presets['3'].seg[0].fx, 7);
+    assert.equal(presets['3'].seg[0].pal, 8);
+
+    await server.stop();
+    server = await startNativeServer(configDir);
+
+    infoResponse = await fetch(`${server.listeningUrl}/json/info`, { signal: AbortSignal.timeout(5000) });
+    info = await infoResponse.json();
+    assert.equal(info.leds.bootps, 3);
+
+    stateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    state = await stateResponse.json();
+    assert.equal(state.ps, 3);
+    assert.equal(state.bri, 99);
+    assert.equal(state.seg[0].fx, 7);
+    assert.equal(state.seg[0].pal, 8);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper accepts direct preset payloads and saves playlist presets', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    server = await startNativeServer(configDir);
+
+    const directResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        pd: 8,
+        on: false,
+        bri: 44,
+        transition: 15,
+        seg: [{ fx: 5, pal: 9, sx: 77, ix: 155, bri: 90, col: [[9, 8, 7], [0, 0, 0], [0, 0, 0]] }]
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(directResponse.status, 200);
+    const directState = await directResponse.json();
+    assert.equal(directState.state.ps, 8);
+    assert.equal(directState.state.on, false);
+    assert.equal(directState.state.bri, 44);
+    assert.equal(directState.state.seg[0].fx, 5);
+    assert.equal(directState.state.seg[0].pal, 9);
+
+    const playlistSaveResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        psave: 12,
+        n: 'Cycle',
+        on: true,
+        o: true,
+        playlist: {
+          ps: [21, 22],
+          dur: [1, 1],
+          transition: [7, 7],
+          repeat: 1,
+          end: 21,
+          r: false
+        }
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(playlistSaveResponse.status, 200);
+
+    const presets = readJsonFile(path.join(configDir, 'presets.json'));
+    assert.equal(presets['12'].n, 'Cycle');
+    assert.deepEqual(presets['12'].playlist.ps, [21, 22]);
+    assert.deepEqual(presets['12'].playlist.transition, [7, 7]);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper runs playlists in server mode and advances to the next preset', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    fs.writeFileSync(
+      path.join(configDir, 'presets.json'),
+      JSON.stringify({
+        0: {},
+        21: { n: 'One', on: true, bri: 30, seg: [{ fx: 1, pal: 2 }] },
+        22: { n: 'Two', on: true, bri: 90, seg: [{ fx: 3, pal: 4 }] }
+      })
+    );
+
+    server = await startNativeServer(configDir);
+
+    const playlistResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        on: true,
+        playlist: {
+          ps: [21, 22],
+          dur: [1, 1],
+          transition: [7, 7],
+          repeat: 1,
+          end: 21,
+          r: false
+        }
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(playlistResponse.status, 200);
+    let playlistState = await playlistResponse.json();
+    assert.equal(playlistState.state.ps, 21);
+    assert.equal(playlistState.state.seg[0].fx, 1);
+
+    const nextResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ np: true }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(nextResponse.status, 200);
+    playlistState = await nextResponse.json();
+    assert.equal(playlistState.state.ps, 22);
+    assert.equal(playlistState.state.seg[0].fx, 3);
+    assert.equal(playlistState.state.seg[0].pal, 4);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper serves real effect, fxdata, and palette catalogs', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    server = await startNativeServer(configDir);
+
+    const effectsResponse = await fetch(`${server.listeningUrl}/json/effects`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(effectsResponse.status, 200);
+    const effects = await effectsResponse.json();
+    assert.ok(effects.length > 20);
+    assert.equal(effects[0], 'Solid');
+    assert.ok(effects.includes('Blink'));
+
+    const fxDataResponse = await fetch(`${server.listeningUrl}/json/fxdata`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(fxDataResponse.status, 200);
+    const fxData = await fxDataResponse.json();
+    assert.equal(fxData.length, effects.length);
+    assert.match(fxData[0], /^Solid/);
+
+    const palettesResponse = await fetch(`${server.listeningUrl}/json/palettes`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(palettesResponse.status, 200);
+    const palettes = await palettesResponse.json();
+    assert.ok(palettes.length > 10);
+    assert.equal(palettes[0], 'Default');
+  } finally {
     if (server) await server.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
   }

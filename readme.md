@@ -18,14 +18,17 @@ Originally created by [Aircoookie](https://github.com/Aircoookie)
 
 ## Native port status
 
-The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). The current host runtime now compiles directly from `wled00/`, resolves the native config root, seeds `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`, persists a stable instance ID for future `/json/info` and Zeroconf compatibility, serves a native HTTP/WebSocket process by default, and still exposes logical file-management helpers through the same entry point:
+The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). The current host runtime now compiles directly from `wled00/`, resolves the native config root, seeds `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`, persists a stable instance ID for future `/json/info` and Zeroconf compatibility, serves a native HTTP/WebSocket process by default, exposes registry-backed native instance discovery for `/json/nodes`, and still exposes logical file-management helpers through the same entry point:
 
 - `scripts/native-build.sh`
 - `scripts/native-run.sh --config-dir <dir>` to start the current native host server
 - `scripts/native-run.sh --exit-after-bootstrap --config-dir <dir>` for non-serving bootstrap diagnostics
+- `scripts/native-run.sh --dump-json <target>`, `--dump-route <path>`, `--apply-settings <path:body>`, `--apply-json <path:body>`, and `--stage-update-file <path>` for bootstrap-only inspection of browser/API contracts, JSON POST flows, and host update staging without opening a listening socket
 - `scripts/native-test.sh`
 
 The old firmware build workflow has been removed from the active repository path. Native-port work should follow `Native-Port-Plan.md` and these wrapper scripts rather than a separate native status document.
+
+The native host runtime now also includes a bundled usermod harness for host-compatible usermods. `usermod_v2_auto_save` is the first live port on that path; hardware-only ESP usermods have been removed from the native product tree.
 
 ## ⚙️ Features
 - WS2812FX library with more than 100 special effects  

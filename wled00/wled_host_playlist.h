@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -46,6 +47,7 @@ void advanceHostMillis(uint32_t deltaMs);
 bool applyPresetFromPlaylist(byte index);
 void resetHostPlaylistState();
 const std::vector<byte>& getAppliedPlaylistPresets();
+void setHostPlaylistApplyCallback(std::function<bool(byte)> callback);
 
 int16_t loadPlaylist(JsonObject playlistObject, byte presetId = 0);
 void handlePlaylist();

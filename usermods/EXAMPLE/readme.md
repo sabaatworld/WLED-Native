@@ -4,6 +4,6 @@ In this usermod file you can find the documentation on how to take advantage of 
 
 ## Installation 
 
-Add `EXAMPLE` to `custom_usermods` in your PlatformIO environment and compile!
+Add `EXAMPLE` to `custom_usermods` in your legacy firmware build environment and compile!
 _(You shouldn't need to actually install this, it does nothing useful)_
 

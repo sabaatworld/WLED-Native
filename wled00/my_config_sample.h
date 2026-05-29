@@ -6,7 +6,7 @@
  * It is possible to enable and disable certain features as well as set defaults for some runtime changeable settings.
  *
  * How to use:
- * PlatformIO: Just compile the unmodified code once! The file "my_config.h" will be generated automatically and now you can make your changes.
+ * legacy firmware build: Just compile the unmodified code once! The file "my_config.h" will be generated automatically and now you can make your changes.
  *
  * ArduinoIDE: Make a copy of this file and name it "my_config.h". Go to wled.h and uncomment "#define WLED_USE_MY_CONFIG" in the top of the file.
  *

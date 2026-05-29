@@ -82,7 +82,7 @@ After getting the URL (it can be a static file like static.json or a mylogic.php
 
 1. Add `usermod_v2_HttpPullLightControl` to your WLED project following the instructions provided in the WLED documentation.
 2. Compile by setting the build_flag: -D USERMOD_HTTP_PULL_LIGHT_CONTROL and upload to your ESP32/ESP8266!
-3. There are several compile options which you can put in your platformio.ini or platformio_override.ini:
+3. There are several compile options which you can put in your legacy firmware config or legacy firmware override file:
 
 * -DUSERMOD_HTTP_PULL_LIGHT_CONTROL   ;To Enable the usermod
 * -DHTTP_PULL_LIGHT_CONTROL_URL="\"`http://mydomain.com/json-response.php`\""   ; The URL which will be requested all the time to set the lights/effects

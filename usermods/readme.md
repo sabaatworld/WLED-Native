@@ -1,21 +1,17 @@
 # Usermods
 
-This folder serves as a repository for usermods (custom `usermod.cpp` files)!
+This directory now tracks the bundled usermods that still make sense for the native macOS/Linux port.
 
-If you have created a usermod you believe is useful (for example to support a particular sensor, display, feature...), feel free to contribute by opening a pull request!
+Hardware-only usermods that depended on ESP GPIO, sensors, displays, relays, RF/IR peripherals, SD hardware, or ESP-specific networking/power features have been removed from the native product path. The remaining entries are either:
 
-In order for other people to be able to have fun with your usermod, please keep these points in mind:
+- host-port targets that can still be adapted to the native runtime, or
+- source examples for writing new host-compatible usermods.
 
-* Create a folder in this folder with a descriptive name (for example `usermod_ds18b20_temp_sensor_mqtt`)  
-* Include your custom files 
-* If your usermod requires changes to other WLED files, please write a `readme.md` outlining the steps one needs to take  
-* Create a pull request!  
-* If your feature is useful for the majority of WLED users, I will consider adding it to the base code!  
+If you add a new bundled usermod, keep these rules in mind:
 
-While I do my best to not break too much, keep in mind that as WLED is updated, usermods might break.  
-I am not actively maintaining any usermod in this directory, that is your responsibility as the creator of the usermod.
+- Create a descriptive folder under `usermods/`.
+- Keep it host-compatible, or gate hardware-only code to the Arduino path and document the host boundary explicitly.
+- If it needs changes elsewhere in WLED, include a `readme.md` that explains the integration steps.
+- Add tests for config, JSON hooks, and runtime behavior when the usermod is enabled in the native host build.
 
-For new usermods, I would recommend trying out the new v2 usermod API, which allows installing multiple usermods at once and new functions!
-You can take a look at `EXAMPLE_v2` for some documentation and at `Temperature` for a completed v2 usermod!
-
-Thank you for your help :)
+For new usermods, prefer the v2 API style and use `usermods/EXAMPLE/` plus `usermods/usermod_v2_auto_save/` as the current host-oriented references.

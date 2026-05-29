@@ -22,7 +22,9 @@ add_executable(wled-native
   wled00/wled_host_runtime.cpp
   wled00/wled_host_server.cpp
   wled00/wled_host_storage.cpp
+  wled00/wled_host_usermod.cpp
   wled00/wled_main.cpp
+  usermods/usermod_v2_auto_save/usermod_v2_auto_save.cpp
 )
 
 target_compile_features(wled-native PRIVATE cxx_std_17)

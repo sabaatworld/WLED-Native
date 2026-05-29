@@ -30,7 +30,7 @@ There are however plans to create a lightweight audioreactive for the 8266, with
 
 ## Installation
 
-Add 'ADS1115_v2' to `custom_usermods` in your platformio environment.
+Add 'ADS1115_v2' to `custom_usermods` in your legacy firmware environment.
 
 ## Configuration
 

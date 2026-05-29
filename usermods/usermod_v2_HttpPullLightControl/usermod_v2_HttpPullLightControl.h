@@ -19,7 +19,7 @@
 
 #include "wled.h"
 
-// Use the following for SHA1 computation of our HASH, unfortunatelly PlatformIO doesnt recognize Hash.h while its already in the Core.
+// Use the following for SHA1 computation of our HASH, unfortunatelly legacy firmware build doesnt recognize Hash.h while its already in the Core.
 // We use Hash.h for ESP8266 (in the core) and mbedtls/sha256.h for ESP32 (in the core).
 #ifdef ESP8266
   #include <Hash.h>

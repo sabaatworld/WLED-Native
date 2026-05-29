@@ -20,15 +20,15 @@ I added a switch in usermod called "meander wiring?" to enable/disable the alter
 
 ## Installation
 
-Copy and update the example `platformio_override.ini.sample`
+Copy and update the example `legacy firmware override sample`
 from the Rotary Encoder UI usermod folder to the root directory of your particular build.
-This file should be placed in the same directory as `platformio.ini`.
+This file should be placed in the same directory as `legacy firmware config`.
 
 ### Define Your Options
 
 * `USERMOD_WORDCLOCK`   - define this to have this usermod included wled00\usermods_list.cpp
 
-### PlatformIO requirements
+### legacy firmware build requirements
 
 No special requirements.
 

@@ -6,7 +6,7 @@ Demo: [https://imgur.com/a/i1v5WAy](https://imgur.com/a/i1v5WAy)
 
 ## Installation
 
-To activate the usermod, add the following line to your platformio_override.ini
+To activate the usermod, add the following line to your legacy firmware override file
 ```ini
 custom_usermods = ps_comet
 ```

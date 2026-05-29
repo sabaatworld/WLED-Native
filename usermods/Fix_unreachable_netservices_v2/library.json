@@ -1,5 +1,0 @@
-{
-  "name": "Fix_unreachable_netservices_v2",
-  "build": { "libArchive": false },
-  "platforms": ["espressif8266"]
-}
