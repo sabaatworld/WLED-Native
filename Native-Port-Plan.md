@@ -571,6 +571,7 @@ Area log:
 - Re-ran `scripts/native-build.sh`, `node --test --test-name-pattern "native wrapper prints WLED help text|native wrapper dumps browser-facing JSON payloads without binding a server socket|native wrapper restores custom palette browser contracts without binding a server socket" test/native-cli.test.js`, and updated the shared bootstrap-only CLI with `--apply-json` so the native host can exercise `/json/state` POST behavior without binding a socket. That same pass restored host custom-palette discovery from `/paletteN.json`, wired `/json/pal`, `info.cpalcount`, `info.cpalmax`, and custom entries inside `/json/palx`, and made `{"rmcpal":...}` delete palette files again through the native JSON API.
 - Re-ran `npm run build`, `scripts/native-build.sh`, `node --test --test-name-pattern "native wrapper prints WLED help text|native wrapper dumps browser-facing JSON payloads without binding a server socket|native wrapper restores custom palette browser contracts without binding a server socket|native wrapper dumps host-discovered nodes without binding a server socket" test/native-cli.test.js`, and `git diff --check` after replacing the native `/json/nodes` stub. The host now has a registry-backed node list, `--dump-json nodes` is available for sandbox-safe verification, `info.ndc` now reflects `nodeListEnabled` plus the discovered peer count instead of a fixed placeholder, and the browser now labels host-only peers as `Native` instead of `?`.
 - Re-ran `scripts/native-build.sh`, `node --test --test-name-pattern "native wrapper prints WLED help text|native wrapper dumps browser-facing JSON payloads without binding a server socket|native wrapper restores custom palette browser contracts without binding a server socket|native wrapper supports legacy /edit query forms without binding a server socket|native wrapper dumps host-discovered nodes without binding a server socket" test/native-cli.test.js`, and `git diff --check` after fixing the native `/edit` parser. The host now accepts both the newer `/edit?func=...&path=...` contract and the legacy shorthand query form (`/edit?list=/`, `/edit?edit=/foo`, `/edit?download=/foo`, `/edit?delete=/foo`) that bundled pages such as PixelForge and PxMagic still use.
+- Re-ran `scripts/native-build.sh` plus `node --test --test-name-pattern "native wrapper dumps browser-facing JSON payloads without binding a server socket" test/native-cli.test.js` after comparing the screenshoted browser failure against the original `serializeState()` / `serializeInfo()` contract in `wled00/json.cpp`. The highest-impact host gap was that native `/json`/`/json/state` omitted browser-required fields such as `state.udpn.send`, `state.bs`, `info.leds.maxseg`, and `info.str`, which caused the main page init path to throw before segments finished rendering. The host JSON builders now emit those compatibility fields again, along with default first-segment capability fields the browser expects during `readState()`.
 - Newly discovered tasks or risks:
 - A host server that can answer `/json/info` but is not backed by `serializeInfo()`, `serializeState()`, `deserializeState()`, and the strip service loop will diverge from WLED semantics quickly, even if the browser appears to load.
 - Browser-visible startup correctness depends on the render loop, presets, playlists, and segment state already existing by the time `/json/si` and `/ws` are first consumed.
@@ -584,6 +585,7 @@ Area log:
 - The new host `/json/pins` slice is descriptive only. It does not yet claim live button/touch/ADC state, physical pin capabilities, or true ownership tracking equivalent to the original ESP `PinManager` path.
 - The new host `/json/nodes` slice uses a temp-file registry (`WLED_NATIVE_NODE_REGISTRY_PATH` overrideable for tests) instead of the original UDP notifier or mDNS discovery path. That restores the browser/API contract for native multi-instance visibility, but it is still a host-native approximation until the later network/discovery port lands.
 - The file editor now works against the host config root, including the older shorthand query style still used by bundled tools, but browser-level verification of list/download/delete/reset still remains blocked in this sandbox until server-mode tests can bind a local port again.
+- The current main-page fix restores the structural JSON contract that unblocks browser init, but it still uses host default values for sync/blending/segment-capability metadata instead of the original runtime-owned values. That is acceptable for compatibility right now, but the later real render/runtime port should replace those placeholders with original state ownership.
 
 ### Host networking, Zeroconf, UDP realtime protocols, and time
 
@@ -761,3 +763,59 @@ Area log:
   - Re-ran the cleanup test after removing the partition CSV files and ESP build guide.
 - Newly discovered tasks or risks:
   - The remaining cleanup is semantic rather than lexical: many usermod docs now refer generically to a legacy firmware build path, and those instructions should eventually be removed entirely as unsupported usermods are pruned from the native product path.
+
+### Browser settings-page compatibility follow-up
+
+Objective: keep the native host compatible with the original WLED settings-page load pattern, including nested shared asset requests from `/settings/*` routes.
+
+Area log:
+- Actions taken:
+  - Reproduced the settings-page failure through the native route dumper and confirmed the root cause: subpages such as `/settings/wifi` and `/settings/leds` load `common.js` and `style.css` with relative URLs, which made the browser request `/settings/common.js` and `/settings/style.css`.
+  - Updated `wled00/wled_host_server.cpp` route normalization so nested settings asset requests for `common.js` and `style.css` resolve to the shared top-level files, matching the original server contract more closely.
+  - Added a non-socket regression in `test/native-cli.test.js` that now verifies `/settings/common.js`, `/settings/style.css`, and the key settings pages `/settings/wifi`, `/settings/leds`, `/settings/ui`, `/settings/sync`, `/settings/time`, `/settings/sec`, `/settings/um`, `/settings/dmx`, `/settings/2D`, and `/settings/pins`, plus `/settings/s.js?p=11`.
+  - While broadening settings verification, found that `/settings/um` persistence was saving correctly but the follow-up native `/json/state` dump could silently omit the usermod state block because the host `buildStateJson()` document budget was too small; increased that JSON document capacity so the Autosave usermod state survives a fresh bootstrap and export again.
+  - Reproduced the remaining main-page `Init failed: [object Event]` toast by tracing the browser init sequence in `wled00/data/index.js`. The root cause was `loadSkinCSS()` requesting `/skin.css` as an optional customization file while the native host returned `404` for a missing file.
+  - Matched the original `wled_server.cpp` behavior in the native host: `/skin.css` now returns `200` with an empty CSS body when no user-uploaded stylesheet exists, and still serves the stored file when one is present.
+  - Added a non-socket regression that verifies both cases for `/skin.css`: empty optional response when absent and actual stylesheet contents when present in the config root.
+  - Reproduced the Info-tab crash against the original `populateInfo()` contract in `wled00/data/index.js` and compared it to `serializeInfo()` in `wled00/json.cpp`. The native host was missing browser-required fields such as `wifi.signal`, `wifi.rssi`, `fs.pmt`, `uptime`, `time`, `freeheap`, `clock`, and `flash`.
+  - Expanded native `buildInfoJson()` to emit the original browser-facing object shape with host-safe values for the ESP-specific sections: a native `wifi` object, filesystem usage and preset-modified timestamp from the host config root, uptime and local time strings, plus the remaining info rows the dialog expects.
+  - Added a non-socket regression that asserts the native `/json/info` payload contains the fields the original Info dialog reads before rendering.
+- Discrepancies or deviations:
+  - The break was not in the page-specific settings JS itself; it was earlier in the shared asset path handling, so page content could exist while still being effectively unusable in a browser.
+- Key decisions and reasoning:
+  - Fixing route normalization in the host server is safer than rewriting the original settings pages, because the original backup/original server already supports those relative-page asset loads.
+  - Route-dump smoke coverage is the right baseline here because local socket/browser automation is still environment-sensitive in some sessions, but the shared asset and page bootstrap contract can still be validated deterministically.
+  - Serving an empty optional `/skin.css` response in the native host is the correct fix point because it restores the original server contract and avoids turning an optional uploaded customization into a fatal main-page startup dependency.
+  - The correct Info-dialog fix is to restore the `serializeInfo()` schema rather than special-casing the browser page, because the original UI expects a stable info object and multiple code paths reuse that payload.
+  - For native-only fields with no ESP equivalent, prefer explicit host-safe sentinel values over omission so the original UI can render without guarding every row.
+- Verification performed:
+  - `scripts/native-build.sh`
+  - `node --test --test-name-pattern "native wrapper serves settings pages and their shared nested assets without binding a server socket|native wrapper dumps browser-facing JSON payloads without binding a server socket|native wrapper treats skin.css as an optional browser asset without binding a server socket|native wrapper applies usermod settings without binding a server socket|native wrapper emits info JSON that the original info dialog can render without binding a server socket" test/native-cli.test.js`
+  - Direct `--dump-route` checks for `/settings/common.js`, `/settings/style.css`, `/settings/wifi`, and `/settings/s.js?p=11`
+- Newly discovered tasks or risks:
+  - This closes the missing shared-asset route gap for settings pages, but it is still worth running a live browser pass against the listening native server whenever the browser tool/backend is available, to catch console/runtime issues beyond static route compatibility.
+
+### Render-buffer priority ranking follow-up
+
+Objective: rank the remaining native-port gaps by user impact, then start on the highest one by replacing the host’s single-color live-output scaffold with a real per-LED render buffer.
+
+Area log:
+- Actions taken:
+  - Re-ranked the remaining native-port gaps from the current source instead of only from prior notes. Highest to lowest impact at this stage: core render-buffer/effect fidelity, real network/discovery stack, MQTT/Hue/usermod/runtime completeness, packaging/service/install flow, then broader browser end-to-end coverage.
+  - Verified the top-ranked gap directly in `wled00/wled_host_server.cpp`: both `/json/live` and WebSocket live-view frames were still generated by repeating one brightness-scaled primary color across every LED, with no render buffer at all.
+  - Added a new non-socket regression in `test/native-cli.test.js` that boots a preset with an animated effect and fails unless `/json/live` contains more than one unique LED color.
+  - Added a host-owned per-LED `renderBuffer` in `wled00/wled_host_server.cpp` and introduced a lightweight host renderer that now fills that buffer from current state, effect name, palette selection, speed, intensity, and LED count instead of emitting a constant-color strip.
+  - Switched both `buildLiveViewFrame()` and `buildLiveJson()` to render into and read from that buffer, so WebSocket live view and `/json/live` now share the same per-pixel output path.
+  - Implemented a first host-render slice for the most visible non-ESP cases: solid fill, pulse/fade, blink/flash, chase/scan/wipe/comet-style motion, sparkle-style output, and a palette-driven gradient fallback for the remaining effect names. Custom palettes from `/paletteN.json` are now sampled in this render path too.
+  - Updated the existing socket-based live-view regression to stop asserting the old hard-coded single-color bytes and instead assert that an animated frame contains multiple distinct pixel triples.
+- Discrepancies or deviations:
+  - This does not yet port the original `strip.service()` / `FX.cpp` execution path. It is a host renderer that meaningfully closes the “all LEDs are the same color” gap first, while keeping the deeper original-runtime port as the next stage.
+- Key decisions and reasoning:
+  - Replacing the constant-color scaffold with a shared frame buffer is the smallest durable fix that improves live view, `/json/live`, and browser-visible runtime behavior together.
+  - Using effect names from the already-loaded catalog is safer than hard-coding effect IDs in the new host renderer, because it tracks the source ordering more robustly as the original catalog evolves.
+  - Reusing the same palette/custom-palette information for the render path reduces drift between palette selection and the pixels the host surfaces actually show, even before the full original palette/render pipeline is ported.
+- Verification performed:
+  - `scripts/native-build.sh`
+  - `node --test --test-name-pattern "native wrapper dumps browser-facing JSON payloads without binding a server socket|native wrapper renders non-uniform live output for animated effects without binding a server socket" test/native-cli.test.js`
+- Newly discovered tasks or risks:
+  - The top remaining gap is narrower now but still real: the host has a render buffer, yet it is still fed by a host renderer rather than the original WLED segment/effect engine, so exact effect parity, palette fidelity, transitions, and 2D behavior still need the later `strip.service()`-class port.

@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 #include <chrono>
 #include <filesystem>
@@ -712,6 +713,10 @@ std::string normalizeStaticRoute(const std::string& requestPath) {
   };
 
   if (const auto alias = kRouteAliases.find(requestPath); alias != kRouteAliases.end()) return alias->second;
+  if (requestPath.rfind("/settings/", 0) == 0) {
+    const std::string leafName = requestPath.substr(std::string("/settings/").size());
+    if (leafName == "common.js" || leafName == "style.css") return "/" + leafName;
+  }
   return requestPath;
 }
 
@@ -749,6 +754,45 @@ bool readStaticFile(const std::filesystem::path& path, std::string& body) {
   buffer << input.rdbuf();
   body = buffer.str();
   return true;
+}
+
+uint64_t recursiveFileBytes(const std::filesystem::path& root) {
+  std::error_code error;
+  if (!std::filesystem::exists(root, error)) return 0;
+
+  uint64_t total = 0;
+  std::filesystem::recursive_directory_iterator iter(root, std::filesystem::directory_options::skip_permission_denied, error);
+  std::filesystem::recursive_directory_iterator end;
+  while (!error && iter != end) {
+    if (iter->is_regular_file(error) && !error) total += static_cast<uint64_t>(iter->file_size(error));
+    iter.increment(error);
+  }
+  return total;
+}
+
+uint64_t filesystemCapacityBytes(const std::filesystem::path& root) {
+  std::error_code error;
+  const std::filesystem::space_info info = std::filesystem::space(root, error);
+  if (error) return 0;
+  return static_cast<uint64_t>(info.capacity);
+}
+
+uint64_t fileModifiedTimeSeconds(const std::filesystem::path& path) {
+  std::error_code error;
+  const std::filesystem::file_time_type modified = std::filesystem::last_write_time(path, error);
+  if (error) return 0;
+  const auto systemTime = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+    modified - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(systemTime.time_since_epoch()).count());
+}
+
+std::string formatLocalTimeString() {
+  const std::time_t now = std::time(nullptr);
+  std::tm localTime {};
+  localtime_r(&now, &localTime);
+  char buffer[32];
+  if (std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime) == 0) return "";
+  return buffer;
 }
 
 constexpr const char* kPendingUpdateFile = "/pending-update.bin";
@@ -1116,6 +1160,8 @@ bool sendWsFrame(int fd, uint8_t opcode, const std::string& payload) {
 struct HostServer::Impl : HostUsermodContext {
   HostServerOptions options;
   HostRuntimeState state;
+  std::vector<uint32_t> renderBuffer;
+  uint64_t renderFrameAtMs = 0;
   HostPersistedConfig persistedConfig;
   HostUsermodManager usermods;
   int listenFd = -1;
@@ -1216,6 +1262,138 @@ struct HostServer::Impl : HostUsermodContext {
       colors.add(stop[2]);
       colors.add(stop[3]);
     }
+  }
+
+  static uint32_t colorFromSlot(const std::array<uint8_t, 4>& slot) {
+    return RGBW32(slot[0], slot[1], slot[2], slot[3]);
+  }
+
+  static uint8_t scaleChannel(uint8_t value, uint8_t scale) {
+    return static_cast<uint8_t>((static_cast<uint16_t>(value) * (static_cast<uint16_t>(scale) + 1U)) >> 8);
+  }
+
+  static uint32_t scaleColor(uint32_t color, uint8_t scale) {
+    return RGBW32(
+      scaleChannel(static_cast<uint8_t>(color >> 16), scale),
+      scaleChannel(static_cast<uint8_t>(color >> 8), scale),
+      scaleChannel(static_cast<uint8_t>(color), scale),
+      scaleChannel(static_cast<uint8_t>(color >> 24), scale)
+    );
+  }
+
+  static uint32_t mixColor(uint32_t left, uint32_t right, uint8_t amount) {
+    const uint8_t inverse = static_cast<uint8_t>(255U - amount);
+    const auto mixChannel = [&](uint8_t l, uint8_t r) {
+      return static_cast<uint8_t>((static_cast<uint16_t>(l) * inverse + static_cast<uint16_t>(r) * amount) / 255U);
+    };
+    return RGBW32(
+      mixChannel(static_cast<uint8_t>(left >> 16), static_cast<uint8_t>(right >> 16)),
+      mixChannel(static_cast<uint8_t>(left >> 8), static_cast<uint8_t>(right >> 8)),
+      mixChannel(static_cast<uint8_t>(left), static_cast<uint8_t>(right)),
+      mixChannel(static_cast<uint8_t>(left >> 24), static_cast<uint8_t>(right >> 24))
+    );
+  }
+
+  static uint32_t rgbToColor(uint8_t red, uint8_t green, uint8_t blue) {
+    return RGBW32(red, green, blue, 0);
+  }
+
+  static uint8_t triangleWave(uint32_t value) {
+    const uint8_t phase = static_cast<uint8_t>(value & 0xFFU);
+    return phase < 128U ? static_cast<uint8_t>(phase << 1) : static_cast<uint8_t>((255U - phase) << 1);
+  }
+
+  static uint32_t hsvToColor(uint8_t hue, uint8_t sat, uint8_t val) {
+    const uint8_t region = hue / 43U;
+    const uint8_t remainder = static_cast<uint8_t>((hue - region * 43U) * 6U);
+    const uint8_t p = static_cast<uint8_t>((static_cast<uint16_t>(val) * (255U - sat)) / 255U);
+    const uint8_t q = static_cast<uint8_t>((static_cast<uint16_t>(val) * (255U - ((static_cast<uint16_t>(sat) * remainder) / 255U))) / 255U);
+    const uint8_t t = static_cast<uint8_t>((static_cast<uint16_t>(val) * (255U - ((static_cast<uint16_t>(sat) * (255U - remainder)) / 255U))) / 255U);
+
+    switch (region) {
+      case 0: return rgbToColor(val, t, p);
+      case 1: return rgbToColor(q, val, p);
+      case 2: return rgbToColor(p, val, t);
+      case 3: return rgbToColor(p, q, val);
+      case 4: return rgbToColor(t, p, val);
+      default: return rgbToColor(val, p, q);
+    }
+  }
+
+  static uint32_t pseudoRandomColor(uint32_t seed) {
+    uint32_t value = seed * 1103515245U + 12345U;
+    value ^= value >> 11;
+    value *= 1664525U;
+    return hsvToColor(static_cast<uint8_t>(value >> 16), 220, 255);
+  }
+
+  uint32_t samplePaletteColor(const HostRuntimeState& snapshot, const std::vector<HostCustomPaletteEntry>& customPalettes, uint8_t position) const {
+    const uint8_t paletteId = snapshot.palette;
+    if (paletteId == 0) {
+      return hsvToColor(position, 255, 255);
+    }
+    if (paletteId == 1) {
+      return pseudoRandomColor(static_cast<uint32_t>(position) * 257U + renderFrameAtMs);
+    }
+    if (paletteId == 2) {
+      return colorFromSlot(snapshot.colors[0]);
+    }
+    if (paletteId == 3) {
+      return mixColor(colorFromSlot(snapshot.colors[0]), colorFromSlot(snapshot.colors[1]), position);
+    }
+    if (paletteId == 4) {
+      if (position < 128U) {
+        return mixColor(colorFromSlot(snapshot.colors[2]), colorFromSlot(snapshot.colors[1]), static_cast<uint8_t>(position * 2U));
+      }
+      return mixColor(colorFromSlot(snapshot.colors[1]), colorFromSlot(snapshot.colors[0]), static_cast<uint8_t>((position - 128U) * 2U));
+    }
+    if (paletteId == 5) {
+      if (position < 85U) return mixColor(colorFromSlot(snapshot.colors[0]), colorFromSlot(snapshot.colors[1]), static_cast<uint8_t>(position * 3U));
+      if (position < 170U) return mixColor(colorFromSlot(snapshot.colors[1]), colorFromSlot(snapshot.colors[2]), static_cast<uint8_t>((position - 85U) * 3U));
+      return mixColor(colorFromSlot(snapshot.colors[2]), colorFromSlot(snapshot.colors[0]), static_cast<uint8_t>((position - 170U) * 3U));
+    }
+
+    if (paletteId <= kHostCustomPaletteIdBase) {
+      const int customIndex = static_cast<int>(kHostCustomPaletteIdBase - paletteId);
+      if (customIndex >= 0 && customIndex < static_cast<int>(customPalettes.size()) && !customPalettes[static_cast<size_t>(customIndex)].stops.empty()) {
+        const std::vector<std::array<uint8_t, 4>>& stops = customPalettes[static_cast<size_t>(customIndex)].stops;
+        for (size_t stopIndex = 1; stopIndex < stops.size(); ++stopIndex) {
+          if (position > stops[stopIndex][0]) continue;
+          const std::array<uint8_t, 4>& left = stops[stopIndex - 1];
+          const std::array<uint8_t, 4>& right = stops[stopIndex];
+          const uint8_t span = std::max<uint8_t>(1U, static_cast<uint8_t>(right[0] - left[0]));
+          const uint8_t amount = static_cast<uint8_t>((static_cast<uint16_t>(position - left[0]) * 255U) / span);
+          return mixColor(
+            rgbToColor(left[1], left[2], left[3]),
+            rgbToColor(right[1], right[2], right[3]),
+            amount
+          );
+        }
+        const std::array<uint8_t, 4>& stop = stops.back();
+        return rgbToColor(stop[1], stop[2], stop[3]);
+      }
+    }
+
+    const uint8_t seed = static_cast<uint8_t>(paletteId * 37U);
+    if (position < 85U) {
+      return mixColor(
+        rgbToColor((seed + 32U) % 256U, (seed * 3U + 64U) % 256U, (seed * 5U + 96U) % 256U),
+        rgbToColor((seed * 7U + 48U) % 256U, (seed * 11U + 80U) % 256U, (seed * 13U + 16U) % 256U),
+        static_cast<uint8_t>(position * 3U)
+      );
+    }
+    if (position < 170U) {
+      return mixColor(
+        rgbToColor((seed * 7U + 48U) % 256U, (seed * 11U + 80U) % 256U, (seed * 13U + 16U) % 256U),
+        rgbToColor((seed * 17U + 96U) % 256U, (seed * 19U + 24U) % 256U, (seed * 23U + 64U) % 256U),
+        static_cast<uint8_t>((position - 85U) * 3U)
+      );
+    }
+    return mixColor(
+      rgbToColor((seed * 17U + 96U) % 256U, (seed * 19U + 24U) % 256U, (seed * 23U + 64U) % 256U),
+      rgbToColor((seed * 29U + 12U) % 256U, (seed * 31U + 144U) % 256U, (seed * 41U + 200U) % 256U),
+      static_cast<uint8_t>((position - 170U) * 3U)
+    );
   }
   // AI: end
 
@@ -1609,12 +1787,18 @@ struct HostServer::Impl : HostUsermodContext {
       configSnapshot = persistedConfig;
     }
     const std::vector<HostDiscoveredNode> visibleNodes = configSnapshot.nodeListEnabled ? visibleNodeEntries() : std::vector<HostDiscoveredNode>{};
-    DynamicJsonDocument doc(2048);
+    const uint64_t usedBytes = recursiveFileBytes(options.storage.configDir);
+    const uint64_t totalBytes = filesystemCapacityBytes(options.storage.configDir);
+    const uint64_t presetsModifiedTime = fileModifiedTimeSeconds(options.storage.presetsFile);
+    const std::string localTime = formatLocalTimeString();
+    const std::string hostAddress = registryAddress();
+    DynamicJsonDocument doc(4096);
     doc["brand"] = options.productName.c_str();
     doc["product"] = options.productName.c_str();
     doc["name"] = configSnapshot.deviceName.c_str();
     doc["ver"] = options.version.c_str();
     doc["vid"] = 1700000;
+    doc["cn"] = "Kuuhaku";
     doc["release"] = "WLED_Native";
     doc["repo"] = "wled-dev/WLED";
     doc["arch"] = "native";
@@ -1624,8 +1808,11 @@ struct HostServer::Impl : HostUsermodContext {
     doc["psrSz"] = 0;
     doc["live"] = false;
     doc["liveseg"] = -1;
+    doc["lm"] = "";
+    doc["lip"] = "";
     doc["str"] = false;
     doc["simplifiedui"] = configSnapshot.simplifiedUi;
+    doc["udpport"] = configSnapshot.udpPort;
     doc["fxcount"] = effectCatalog.empty() ? 1 : static_cast<int>(effectCatalog.size());
     doc["palcount"] = static_cast<int>(paletteCount());
     doc["cpalcount"] = static_cast<int>(customPalettes.size());
@@ -1633,11 +1820,33 @@ struct HostServer::Impl : HostUsermodContext {
     doc["cpalmax"] = static_cast<int>(kHostMaxCustomPalettes);
     doc["ws"] = 1;
     doc["ndc"] = configSnapshot.nodeListEnabled ? static_cast<int>(visibleNodes.size()) : -1;
-    doc["fs"]["u"] = 0;
-    doc["fs"]["t"] = 0;
+    doc["freeheap"] = 0;
+    doc["uptime"] = millis() / 1000;
+    doc["time"] = localTime.c_str();
+    doc["clock"] = 0;
+    doc["flash"] = 0;
+    doc["lwip"] = 0;
+    doc["opt"] = 0x08;
+    doc["deviceId"] = options.instanceId.c_str();
+    doc["ip"] = hostAddress.c_str();
+
+    JsonObject wifi = doc.createNestedObject("wifi");
+    wifi["bssid"] = "";
+    wifi["rssi"] = 0;
+    wifi["signal"] = 100;
+    wifi["channel"] = 0;
+    wifi["ap"] = false;
+
+    JsonObject fs = doc.createNestedObject("fs");
+    fs["u"] = static_cast<uint32_t>(usedBytes / 1000);
+    fs["t"] = static_cast<uint32_t>(std::max<uint64_t>(usedBytes, totalBytes) / 1000);
+    fs["pmt"] = presetsModifiedTime;
 
     JsonObject leds = doc.createNestedObject("leds");
-    leds["count"] = state.ledCount;
+    {
+      std::lock_guard<std::mutex> stateLock(stateMutex);
+      leds["count"] = state.ledCount;
+    }
     leds["rgbw"] = false;
     leds["wv"] = 0;
     leds["fps"] = 0;
@@ -1649,7 +1858,7 @@ struct HostServer::Impl : HostUsermodContext {
       leds["bootps"] = configSnapshot.bootPreset;
     }
     JsonArray seglc = leds.createNestedArray("seglc");
-    seglc.add(state.ledCount);
+    seglc.add(1);
     doc.createNestedArray("umpalnames");
     JsonObject root = doc.as<JsonObject>();
     usermods.addToJsonInfo(*this, root);
@@ -1660,7 +1869,7 @@ struct HostServer::Impl : HostUsermodContext {
   }
 
   std::string buildStateJson() {
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(4096);
     std::lock_guard<std::mutex> lock(stateMutex);
 
     doc["on"] = state.on;
@@ -2112,54 +2321,123 @@ struct HostServer::Impl : HostUsermodContext {
     }).detach();
   }
 
-  std::string buildLiveViewFrame() {
-    HostRuntimeState snapshot;
-    {
-      std::lock_guard<std::mutex> lock(stateMutex);
-      snapshot = state;
+  void renderFrameLocked(uint64_t nowMs) {
+    renderFrameAtMs = nowMs;
+    const uint16_t ledCount = std::max<uint16_t>(1, std::min<uint16_t>(state.ledCount, 1024));
+    if (renderBuffer.size() != ledCount) renderBuffer.assign(ledCount, 0);
+
+    const uint8_t brightness = state.on ? static_cast<uint8_t>((static_cast<uint16_t>(state.bri) * state.segmentBri) / 255U) : 0;
+    if (brightness == 0) {
+      std::fill(renderBuffer.begin(), renderBuffer.end(), 0);
+      return;
     }
 
-    const uint16_t ledCount = std::max<uint16_t>(1, std::min<uint16_t>(snapshot.ledCount, 1024));
-    const uint16_t brightness = snapshot.on ? (static_cast<uint16_t>(snapshot.bri) * snapshot.segmentBri) / 255U : 0;
-    const std::array<uint8_t, 4>& primary = snapshot.colors[0];
-    const uint8_t white = static_cast<uint8_t>((static_cast<uint16_t>(primary[3]) * brightness) / 255U);
-    const uint8_t red = static_cast<uint8_t>((static_cast<uint16_t>(primary[0]) * brightness) / 255U);
-    const uint8_t green = static_cast<uint8_t>((static_cast<uint16_t>(primary[1]) * brightness) / 255U);
-    const uint8_t blue = static_cast<uint8_t>((static_cast<uint16_t>(primary[2]) * brightness) / 255U);
+    const uint32_t primary = colorFromSlot(state.colors[0]);
+    const uint32_t secondary = colorFromSlot(state.colors[1]);
+    const uint32_t tertiary = colorFromSlot(state.colors[2]);
+    const std::string effectName = state.effect < effectCatalog.size() ? toLower(effectCatalog[state.effect].name) : "solid";
+    const std::vector<HostCustomPaletteEntry> customPalettes = loadCustomPaletteEntries();
+    const uint32_t speedOffset = (nowMs * std::max<uint8_t>(1U, state.speed)) / 32U;
+
+    if (state.effect == 0 || effectName == "solid") {
+      const uint32_t solid = scaleColor(primary, brightness);
+      std::fill(renderBuffer.begin(), renderBuffer.end(), solid);
+      return;
+    }
+
+    if (effectName.find("blink") != std::string::npos || effectName.find("strobe") != std::string::npos || effectName.find("flash") != std::string::npos) {
+      const bool evenPhase = ((nowMs / std::max<uint16_t>(40U, 420U - state.speed)) & 1U) == 0;
+      const uint32_t onColor = scaleColor(primary, brightness);
+      const uint32_t offColor = scaleColor(secondary, static_cast<uint8_t>(brightness / 6U));
+      for (uint16_t index = 0; index < ledCount; ++index) {
+        const bool lit = evenPhase ? ((index & 1U) == 0U) : ((index & 1U) == 1U);
+        renderBuffer[index] = lit ? onColor : offColor;
+      }
+      return;
+    }
+
+    if (effectName.find("chase") != std::string::npos || effectName.find("scan") != std::string::npos ||
+        effectName.find("sweep") != std::string::npos || effectName.find("wipe") != std::string::npos ||
+        effectName.find("comet") != std::string::npos || effectName.find("running") != std::string::npos) {
+      const uint16_t head = static_cast<uint16_t>((speedOffset / std::max<uint16_t>(1U, 16U - state.intensity / 20U)) % ledCount);
+      const uint8_t trailLength = std::max<uint8_t>(2U, static_cast<uint8_t>(2U + state.intensity / 28U));
+      const uint32_t background = scaleColor(secondary ? secondary : tertiary, static_cast<uint8_t>(brightness / 10U));
+      for (uint16_t index = 0; index < ledCount; ++index) {
+        const uint16_t distance = static_cast<uint16_t>((index + ledCount - head) % ledCount);
+        if (distance < trailLength) {
+          const uint8_t fade = static_cast<uint8_t>(255U - (distance * 255U) / trailLength);
+          const uint32_t headColor = scaleColor(samplePaletteColor(state, customPalettes, static_cast<uint8_t>((index * 255U) / std::max<uint16_t>(1U, ledCount - 1U))), brightness);
+          renderBuffer[index] = mixColor(background, headColor, fade);
+        } else {
+          renderBuffer[index] = background;
+        }
+      }
+      return;
+    }
+
+    if (effectName.find("sparkle") != std::string::npos || effectName.find("twinkle") != std::string::npos ||
+        effectName.find("popcorn") != std::string::npos || effectName.find("firework") != std::string::npos) {
+      const uint32_t background = scaleColor(primary, static_cast<uint8_t>(brightness / 7U));
+      for (uint16_t index = 0; index < ledCount; ++index) {
+        const uint32_t noise = (static_cast<uint32_t>(index) * 1103515245U) ^ speedOffset;
+        const bool sparkle = (noise & 0xFFU) < std::max<uint8_t>(8U, state.intensity / 4U);
+        const uint32_t sparkleColor = scaleColor(samplePaletteColor(state, customPalettes, static_cast<uint8_t>(noise >> 8)), brightness);
+        renderBuffer[index] = sparkle ? sparkleColor : background;
+      }
+      return;
+    }
+
+    if (effectName.find("fade") != std::string::npos || effectName.find("breathe") != std::string::npos ||
+        effectName.find("pulse") != std::string::npos) {
+      const uint8_t wave = triangleWave((nowMs * std::max<uint8_t>(1U, state.speed / 3U + 1U)) / 24U);
+      const uint32_t fill = scaleColor(mixColor(primary, samplePaletteColor(state, customPalettes, wave), wave), static_cast<uint8_t>((static_cast<uint16_t>(brightness) * (wave + 1U)) / 255U));
+      std::fill(renderBuffer.begin(), renderBuffer.end(), fill);
+      return;
+    }
+
+    for (uint16_t index = 0; index < ledCount; ++index) {
+      const uint8_t paletteIndex = static_cast<uint8_t>(((static_cast<uint32_t>(index) * 255U) / std::max<uint16_t>(1U, ledCount - 1U)) + speedOffset + static_cast<uint32_t>(state.intensity) * ((index % 3U) + 1U));
+      const uint32_t paletteColor = samplePaletteColor(state, customPalettes, paletteIndex);
+      const uint8_t modulation = std::max<uint8_t>(32U, triangleWave(paletteIndex + static_cast<uint8_t>(nowMs / 18U)));
+      renderBuffer[index] = scaleColor(paletteColor, static_cast<uint8_t>((static_cast<uint16_t>(brightness) * modulation) / 255U));
+    }
+  }
+
+  std::string buildLiveViewFrame() {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    renderFrameLocked(millis());
+    const uint16_t ledCount = static_cast<uint16_t>(renderBuffer.size());
 
     std::string payload;
     payload.resize(2 + static_cast<size_t>(ledCount) * 3, '\0');
     payload[0] = 'L';
     payload[1] = 1;
     for (size_t index = 2; index < payload.size(); index += 3) {
-      payload[index] = static_cast<char>(std::min<uint16_t>(255, red + white));
-      payload[index + 1] = static_cast<char>(std::min<uint16_t>(255, green + white));
-      payload[index + 2] = static_cast<char>(std::min<uint16_t>(255, blue + white));
+      const uint32_t color = renderBuffer[(index - 2U) / 3U];
+      const uint8_t white = static_cast<uint8_t>(color >> 24);
+      payload[index] = static_cast<char>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color >> 16)) + white));
+      payload[index + 1] = static_cast<char>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color >> 8)) + white));
+      payload[index + 2] = static_cast<char>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color)) + white));
     }
     return payload;
   }
 
   std::string buildLiveJson() {
-    HostRuntimeState snapshot;
-    {
-      std::lock_guard<std::mutex> lock(stateMutex);
-      snapshot = state;
-    }
-
-    const uint16_t ledCount = std::max<uint16_t>(1, std::min<uint16_t>(snapshot.ledCount, 1024));
-    const uint16_t brightness = snapshot.on ? (static_cast<uint16_t>(snapshot.bri) * snapshot.segmentBri) / 255U : 0;
-    const std::array<uint8_t, 4>& primary = snapshot.colors[0];
-    const uint8_t white = static_cast<uint8_t>((static_cast<uint16_t>(primary[3]) * brightness) / 255U);
-    const uint8_t red = static_cast<uint8_t>(std::min<uint16_t>(255, (static_cast<uint16_t>(primary[0]) * brightness) / 255U + white));
-    const uint8_t green = static_cast<uint8_t>(std::min<uint16_t>(255, (static_cast<uint16_t>(primary[1]) * brightness) / 255U + white));
-    const uint8_t blue = static_cast<uint8_t>(std::min<uint16_t>(255, (static_cast<uint16_t>(primary[2]) * brightness) / 255U + white));
+    std::lock_guard<std::mutex> lock(stateMutex);
+    renderFrameLocked(millis());
+    const uint16_t ledCount = static_cast<uint16_t>(renderBuffer.size());
 
     std::ostringstream output;
     output << "{\"leds\":[";
-    char colorHex[7] = {0};
-    std::snprintf(colorHex, sizeof(colorHex), "%02X%02X%02X", red, green, blue);
     for (uint16_t index = 0; index < ledCount; ++index) {
       if (index) output << ',';
+      const uint32_t color = renderBuffer[index];
+      const uint8_t white = static_cast<uint8_t>(color >> 24);
+      const uint8_t red = static_cast<uint8_t>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color >> 16)) + white));
+      const uint8_t green = static_cast<uint8_t>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color >> 8)) + white));
+      const uint8_t blue = static_cast<uint8_t>(std::min<uint16_t>(255U, static_cast<uint16_t>(static_cast<uint8_t>(color)) + white));
+      char colorHex[7] = {0};
+      std::snprintf(colorHex, sizeof(colorHex), "%02X%02X%02X", red, green, blue);
       output << '"' << colorHex << '"';
     }
     output << "]}";
@@ -2591,6 +2869,16 @@ struct HostServer::Impl : HostUsermodContext {
     }
 
     if (request.method != "GET") return makeTextResponse(405, "Method not allowed\n");
+
+    if (logicalPath == "/skin.css") {
+      std::filesystem::path assetPath;
+      if (!resolveStaticPath(logicalPath, assetPath) && !resolveStorageAssetPath(options.storage, logicalPath, assetPath)) {
+        return {200, "text/css; charset=utf-8", ""};
+      }
+      std::string body;
+      if (!readStaticFile(assetPath, body)) return makeTextResponse(500, "Unable to read static asset\n");
+      return {200, mimeTypeForPath(assetPath), body};
+    }
 
     if (logicalPath == "/dmxmap") {
       std::filesystem::path assetPath;

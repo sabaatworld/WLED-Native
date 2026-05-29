@@ -488,9 +488,12 @@ test('native wrapper accepts HTTP and WebSocket state updates in server mode', a
     const liveViewBytes = new Uint8Array(liveViewFrame);
     assert.equal(liveViewBytes[0], 'L'.charCodeAt(0));
     assert.equal(liveViewBytes[1], 1);
-    assert.equal(liveViewBytes[2], 1);
-    assert.equal(liveViewBytes[3], 3);
-    assert.equal(liveViewBytes[4], 6);
+    assert.ok(liveViewBytes.length > 8);
+    const pixelTriples = [];
+    for (let index = 2; index + 2 < Math.min(liveViewBytes.length, 26); index += 3) {
+      pixelTriples.push(`${liveViewBytes[index]}-${liveViewBytes[index + 1]}-${liveViewBytes[index + 2]}`);
+    }
+    assert.ok(new Set(pixelTriples).size > 1, `Expected animated live-view frame, got ${pixelTriples.join(', ')}`);
 
     socket.send('p');
     const pongMessage = await waitForSocketMessage(socket, (data) => data === 'pong', 'Timed out waiting for WebSocket pong response');
@@ -866,6 +869,56 @@ test('native wrapper restores custom palette browser contracts without binding a
   }
 });
 
+test('native wrapper renders non-uniform live output for animated effects without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'effects']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const effects = parseDumpedJson(result.stdout);
+    assert.ok(Array.isArray(effects));
+
+    const animatedEffect = effects.findIndex((name, index) => (
+      index > 0 && /(rainbow|chase|scan|sweep|wipe|comet|running)/i.test(name)
+    ));
+    assert.ok(animatedEffect > 0, `Expected an animated effect in catalog, got: ${effects.slice(0, 20).join(', ')}`);
+
+    fs.writeFileSync(
+      path.join(configDir, 'cfg.json'),
+      JSON.stringify({
+        def: { ps: 9 }
+      })
+    );
+    fs.writeFileSync(
+      path.join(configDir, 'presets.json'),
+      JSON.stringify({
+        0: {},
+        9: {
+          n: 'Animated Boot',
+          on: true,
+          bri: 200,
+          seg: [{
+            fx: animatedEffect,
+            pal: 9,
+            sx: 180,
+            ix: 200,
+            col: [[200, 40, 10], [10, 80, 255], [0, 0, 0]]
+          }]
+        }
+      })
+    );
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'live']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = parseDumpedJson(result.stdout);
+    assert.equal(Array.isArray(payload.leds), true);
+    assert.equal(payload.leds.length, 30);
+    assert.ok(new Set(payload.leds).size > 1, `Expected animated live output, got: ${payload.leds.slice(0, 10).join(', ')}`);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
 test('native wrapper supports legacy /edit query forms without binding a server socket', () => {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
 
@@ -887,6 +940,115 @@ test('native wrapper supports legacy /edit query forms without binding a server 
     result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/edit?download=/alpha.json']);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.equal(parseDumpedRoute(result.stdout), '{"alpha":1}');
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper emits info JSON that the original info dialog can render without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const result = runNativeCommand(['--config-dir', configDir, '--dump-json', 'info']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = parseDumpedJson(result.stdout);
+
+    assert.equal(typeof payload.name, 'string');
+    assert.equal(typeof payload.ver, 'string');
+    assert.equal(typeof payload.release, 'string');
+    assert.equal(typeof payload.arch, 'string');
+    assert.equal(typeof payload.core, 'string');
+    assert.equal(typeof payload.mac, 'string');
+    assert.equal(typeof payload.uptime, 'number');
+    assert.equal(typeof payload.time, 'string');
+    assert.equal(typeof payload.freeheap, 'number');
+    assert.equal(typeof payload.clock, 'number');
+    assert.equal(typeof payload.flash, 'number');
+
+    assert.equal(typeof payload.wifi, 'object');
+    assert.equal(typeof payload.wifi.rssi, 'number');
+    assert.equal(typeof payload.wifi.signal, 'number');
+    assert.equal(typeof payload.wifi.channel, 'number');
+    assert.equal(typeof payload.wifi.ap, 'boolean');
+
+    assert.equal(typeof payload.fs, 'object');
+    assert.equal(typeof payload.fs.u, 'number');
+    assert.equal(typeof payload.fs.t, 'number');
+    assert.equal(typeof payload.fs.pmt, 'number');
+
+    assert.equal(typeof payload.leds, 'object');
+    assert.equal(typeof payload.leds.count, 'number');
+    assert.equal(typeof payload.leds.fps, 'number');
+    assert.equal(typeof payload.leds.pwr, 'number');
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper serves settings pages and their shared nested assets without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/settings/common.js']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    let routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /function loadResources\(files, init\)/);
+    assert.match(routeText, /function fetchPinInfo\(cb, retries=5\)/);
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/settings/style.css']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /\.toprow/);
+    assert.match(routeText, /#toast/);
+
+    const pageExpectations = [
+      ['/settings/wifi', /WiFi & Network Settings/, /loadJS\(getURL\('\/settings\/s\.js\?p=1'\)/],
+      ['/settings/leds', /LED setup/, /fetchPinInfo\(pinDropdowns\)/],
+      ['/settings/ui', /User Interface/, /loadJS\(getURL\('\/settings\/s\.js\?p=3'\)/],
+      ['/settings/sync', /Sync setup/, /fetchPinInfo\(pinDropdowns\)/],
+      ['/settings/time', /Time setup/, /loadJS\(getURL\('\/settings\/s\.js\?p=5'\)/],
+      ['/settings/sec', /Security & Update Setup/, /loadJS\(getURL\('\/settings\/s\.js\?p=6'\)/],
+      ['/settings/um', /Usermod Setup/, /fetchPinInfo\(pinDD\)/],
+      ['/settings/dmx', /Imma firin ma lazer/, /loadJS\(getURL\('\/settings\/s\.js\?p=7'\)/],
+      ['/settings/2D', /2D setup/, /loadJS\(getURL\('\/settings\/s\.js\?p=10'\)/],
+      ['/settings/pins', /Pin Info/, /fetchPinInfo\(\(\)=>\{/]
+    ];
+
+    for (const [routePath, headingPattern, scriptPattern] of pageExpectations) {
+      result = runNativeCommand(['--config-dir', configDir, '--dump-route', routePath]);
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      routeText = parseDumpedRoute(result.stdout);
+      assert.match(routeText, headingPattern);
+      assert.match(routeText, scriptPattern);
+      assert.match(routeText, /common\.js/);
+      assert.match(routeText, /style\.css/);
+    }
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/settings/s.js?p=11']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    routeText = parseDumpedRoute(result.stdout);
+    assert.match(routeText, /d\.um_p=\[-1\]/);
+    assert.match(routeText, /d\.rsvd=\[\]/);
+    assert.match(routeText, /d\.ro_gpio=\[\]/);
+    assert.match(routeText, /d\.max_gpio=64/);
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper treats skin.css as an optional browser asset without binding a server socket', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    let result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/skin.css']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(parseDumpedRoute(result.stdout), '');
+
+    fs.writeFileSync(path.join(configDir, 'skin.css'), 'body{outline:1px solid red;}\n', 'utf8');
+
+    result = runNativeCommand(['--config-dir', configDir, '--dump-route', '/skin.css']);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(parseDumpedRoute(result.stdout), 'body{outline:1px solid red;}');
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
   }
