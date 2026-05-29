@@ -1,3 +1,5 @@
+#ifdef ARDUINO
+
 #include "wled.h"
 
 /*
@@ -283,3 +285,55 @@ void deletePreset(byte index) {
   presetsModifiedTime = toki.second(); //unix time
   updateFSInfo();
 }
+
+#else
+
+#include "wled_host_presets.h"
+
+#include "src/dependencies/json/ArduinoJson-v6.h"
+
+namespace {
+
+constexpr const char presetsJson[] = "/presets.json";
+constexpr const char tmpJson[] = "/tmp.json";
+
+} // namespace
+
+const char *getPresetsFileName(bool persistent) {
+  return persistent ? presetsJson : tmpJson;
+}
+
+bool presetNeedsSaving() {
+  return false;
+}
+
+void initPresetsFile()
+{
+  const HostStorageLayout* layout = getActiveHostStorageLayout();
+  if (!layout || std::filesystem::exists(layout->presetsFile)) return;
+
+  StaticJsonDocument<64> document;
+  JsonObject root = document.to<JsonObject>();
+  root.createNestedObject("0");
+  writeObjectToFile(getPresetsFileName(), nullptr, &document);
+}
+
+bool getPresetName(byte index, String& name)
+{
+  DynamicJsonDocument document(1024);
+  if (!readObjectFromFileUsingId(getPresetsFileName(), index, &document)) return false;
+
+  JsonObject preset = document.as<JsonObject>();
+  if (preset.isNull() || !preset["n"].is<const char*>()) return false;
+
+  name = preset["n"].as<const char*>();
+  return true;
+}
+
+void deletePreset(byte index) {
+  StaticJsonDocument<24> empty;
+  empty.to<JsonObject>();
+  writeObjectToFileUsingId(getPresetsFileName(), index, &empty);
+}
+
+#endif

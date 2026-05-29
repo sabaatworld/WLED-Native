@@ -1,3 +1,5 @@
+#ifdef ARDUINO
+
 #include "wled.h"
 
 /*
@@ -602,3 +604,211 @@ void dumpFilesToSerial() {
   }
 }
 
+#else
+
+#include "wled_host_file.h"
+
+#include "wled_host_storage.h"
+
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
+namespace {
+
+std::string stripObjectKeyDecorators(const char* key) {
+  if (!key) return {};
+
+  std::string keyText(key);
+  if (!keyText.empty() && keyText.back() == ':') keyText.pop_back();
+  if (keyText.size() >= 2 && keyText.front() == '"' && keyText.back() == '"') {
+    keyText.erase(keyText.begin());
+    keyText.pop_back();
+  }
+  return keyText;
+}
+
+bool resolveHostFilePath(const char* file, std::filesystem::path& resolvedPath) {
+  const HostStorageLayout* layout = getActiveHostStorageLayout();
+  if (!layout || !file) return false;
+
+  std::string error;
+  return resolveHostStoragePath(*layout, file, resolvedPath, error);
+}
+
+bool readRootDocument(const char* file, DynamicJsonDocument& document) {
+  std::filesystem::path resolvedPath;
+  if (!resolveHostFilePath(file, resolvedPath)) return false;
+
+  std::ifstream input(resolvedPath);
+  if (!input.is_open()) return false;
+
+  const DeserializationError error = deserializeJson(document, input);
+  return !error && document.is<JsonObject>();
+}
+
+bool writeRootDocument(const char* file, const JsonDocument& document) {
+  std::filesystem::path resolvedPath;
+  if (!resolveHostFilePath(file, resolvedPath)) return false;
+
+  std::ofstream output(resolvedPath, std::ios::trunc);
+  if (!output.is_open()) return false;
+
+  serializeJson(document, output);
+  output << '\n';
+  return output.good();
+}
+
+bool copyFileContents(const std::filesystem::path& sourcePath, const std::filesystem::path& destinationPath) {
+  std::ifstream source(sourcePath, std::ios::binary);
+  if (!source.is_open()) return false;
+
+  std::ofstream destination(destinationPath, std::ios::binary | std::ios::trunc);
+  if (!destination.is_open()) return false;
+
+  destination << source.rdbuf();
+  return source.good() && destination.good();
+}
+
+std::string makeBackupPath(const char* filename) {
+  std::string logicalPath(filename ? filename : "");
+  while (!logicalPath.empty() && logicalPath.front() == '/') logicalPath.erase(logicalPath.begin());
+  return "/bkp." + logicalPath;
+}
+
+} // namespace
+
+void closeFile() {}
+
+bool writeObjectToFileUsingId(const char* file, uint16_t id, const JsonDocument* content)
+{
+  char objKey[10];
+  snprintf(objKey, sizeof(objKey), "\"%u\":", id);
+  return writeObjectToFile(file, objKey, content);
+}
+
+bool writeObjectToFile(const char* file, const char* key, const JsonDocument* content)
+{
+  if (!file || !content) return false;
+
+  DynamicJsonDocument rootDocument(16384);
+  JsonObject root = rootDocument.to<JsonObject>();
+  readRootDocument(file, rootDocument);
+  root = rootDocument.as<JsonObject>();
+  if (root.isNull()) root = rootDocument.to<JsonObject>();
+
+  if (!key) {
+    rootDocument.clear();
+    rootDocument.set(content->as<JsonVariantConst>());
+    return writeRootDocument(file, rootDocument);
+  }
+
+  const std::string keyName = stripObjectKeyDecorators(key);
+  if (keyName.empty()) return false;
+
+  root[keyName].set(content->as<JsonVariantConst>());
+  return writeRootDocument(file, rootDocument);
+}
+
+bool readObjectFromFileUsingId(const char* file, uint16_t id, JsonDocument* dest, const JsonDocument* filter)
+{
+  char objKey[10];
+  snprintf(objKey, sizeof(objKey), "\"%u\":", id);
+  return readObjectFromFile(file, objKey, dest, filter);
+}
+
+bool readObjectFromFile(const char* file, const char* key, JsonDocument* dest, const JsonDocument* filter)
+{
+  (void)filter;
+  if (!file || !dest) return false;
+
+  DynamicJsonDocument rootDocument(16384);
+  if (!readRootDocument(file, rootDocument)) {
+    dest->clear();
+    return false;
+  }
+
+  if (!key) {
+    dest->clear();
+    dest->set(rootDocument.as<JsonVariantConst>());
+    return true;
+  }
+
+  JsonVariantConst value = rootDocument[stripObjectKeyDecorators(key)];
+  if (value.isNull()) {
+    dest->clear();
+    return false;
+  }
+
+  dest->clear();
+  dest->set(value);
+  return true;
+}
+
+void updateFSInfo() {}
+
+bool copyFile(const char* srcPath, const char* dstPath) {
+  std::filesystem::path resolvedSourcePath;
+  std::filesystem::path resolvedDestinationPath;
+  if (!resolveHostFilePath(srcPath, resolvedSourcePath) || !resolveHostFilePath(dstPath, resolvedDestinationPath)) return false;
+  return copyFileContents(resolvedSourcePath, resolvedDestinationPath);
+}
+
+bool compareFiles(const char* path1, const char* path2) {
+  std::filesystem::path resolvedFirstPath;
+  std::filesystem::path resolvedSecondPath;
+  if (!resolveHostFilePath(path1, resolvedFirstPath) || !resolveHostFilePath(path2, resolvedSecondPath)) return false;
+
+  std::ifstream first(resolvedFirstPath, std::ios::binary);
+  std::ifstream second(resolvedSecondPath, std::ios::binary);
+  if (!first.is_open() || !second.is_open()) return false;
+
+  std::istreambuf_iterator<char> firstIt(first);
+  std::istreambuf_iterator<char> secondIt(second);
+  std::istreambuf_iterator<char> end;
+  return std::equal(firstIt, end, secondIt, end);
+}
+
+bool backupFile(const char* filename) {
+  if (!validateJsonFile(filename)) return false;
+  const std::string backupPath = makeBackupPath(filename);
+  return copyFile(filename, backupPath.c_str());
+}
+
+bool restoreFile(const char* filename) {
+  const std::string backupPath = makeBackupPath(filename);
+  if (!checkBackupExists(filename) || !validateJsonFile(backupPath.c_str())) return false;
+  return copyFile(backupPath.c_str(), filename);
+}
+
+bool checkBackupExists(const char* filename) {
+  std::filesystem::path resolvedBackupPath;
+  const std::string backupPath = makeBackupPath(filename);
+  return resolveHostFilePath(backupPath.c_str(), resolvedBackupPath) && std::filesystem::exists(resolvedBackupPath);
+}
+
+bool validateJsonFile(const char* filename) {
+  DynamicJsonDocument document(16384);
+  return readRootDocument(filename, document);
+}
+
+void dumpFilesToSerial() {
+  const HostStorageLayout* layout = getActiveHostStorageLayout();
+  if (!layout) return;
+
+  for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(layout->configDir)) {
+    if (!entry.is_regular_file()) continue;
+
+    const std::string fileName = entry.path().filename().string();
+    if (fileName.rfind("wsec", 0) == 0) continue;
+    if (entry.path().extension() != ".json") continue;
+
+    std::ifstream input(entry.path());
+    if (!input.is_open()) continue;
+
+    std::cout << fileName << '\n' << input.rdbuf() << "\n\n";
+  }
+}
+
+#endif

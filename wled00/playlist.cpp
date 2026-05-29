@@ -1,4 +1,8 @@
-#include "wled.h"
+#ifdef ARDUINO
+  #include "wled.h"
+#else
+  #include "wled_host_playlist.h"
+#endif
 
 /*
  * Handles playlists, timed sequences of presets

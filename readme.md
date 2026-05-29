@@ -18,7 +18,7 @@ Originally created by [Aircoookie](https://github.com/Aircoookie)
 
 ## Native port status
 
-The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). Task 2 adds an experimental host build/bootstrap path that compiles directly from `wled00/`:
+The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). The current host bootstrap now compiles directly from `wled00/`, resolves the native config root, seeds `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`, persists a stable instance ID for future `/json/info` and Zeroconf compatibility, and exposes logical file read/copy/rename/delete helpers inside that config root:
 
 - `scripts/native-build.sh`
 - `scripts/native-run.sh --help`

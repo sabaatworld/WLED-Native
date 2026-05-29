@@ -20,7 +20,10 @@ const char* kProductName = WLED_HOST_PRODUCT_NAME;
 const char* kVersionString = WLED_HOST_VERSION;
 
 bool requiresValue(const std::string& arg) {
-  return arg == "--config-dir" || arg == "--host" || arg == "--port" || arg == "--log-level";
+  return arg == "--config-dir" || arg == "--host" || arg == "--port" || arg == "--log-level" || arg == "--resolve-path" || arg == "--read-file" || arg == "--copy-file" ||
+         arg == "--rename-file" || arg == "--delete-file" || arg == "--compare-files" || arg == "--validate-json" || arg == "--backup-file" || arg == "--restore-file" ||
+         arg == "--has-backup" || arg == "--blend-color" || arg == "--fade-color" || arg == "--prng-seq" || arg == "--playlist-run" || arg == "--preset-name" ||
+         arg == "--delete-preset";
 }
 
 bool assignOptionValue(HostCliOptions& options, const std::string& arg, const std::string& value, std::string& error) {
@@ -34,6 +37,70 @@ bool assignOptionValue(HostCliOptions& options, const std::string& arg, const st
   }
   if (arg == "--log-level") {
     options.logLevel = value;
+    return true;
+  }
+  if (arg == "--resolve-path") {
+    options.resolvePath = value;
+    return true;
+  }
+  if (arg == "--read-file") {
+    options.readPath = value;
+    return true;
+  }
+  if (arg == "--copy-file") {
+    options.copyPathSpec = value;
+    return true;
+  }
+  if (arg == "--rename-file") {
+    options.renamePathSpec = value;
+    return true;
+  }
+  if (arg == "--delete-file") {
+    options.deletePath = value;
+    return true;
+  }
+  if (arg == "--compare-files") {
+    options.comparePathSpec = value;
+    return true;
+  }
+  if (arg == "--validate-json") {
+    options.validatePath = value;
+    return true;
+  }
+  if (arg == "--backup-file") {
+    options.backupPath = value;
+    return true;
+  }
+  if (arg == "--restore-file") {
+    options.restorePath = value;
+    return true;
+  }
+  if (arg == "--has-backup") {
+    options.hasBackupPath = value;
+    return true;
+  }
+  if (arg == "--blend-color") {
+    options.blendColorSpec = value;
+    return true;
+  }
+  if (arg == "--fade-color") {
+    options.fadeColorSpec = value;
+    return true;
+  }
+  if (arg == "--prng-seq") {
+    options.prngSequenceSpec = value;
+    return true;
+  }
+  if (arg == "--playlist-run") {
+    options.playlistRunSpec = value;
+    return true;
+  }
+  if (arg == "--preset-name") {
+    options.presetNameSpec = value;
+    return true;
+  }
+  if (arg == "--delete-preset") {
+    options.deletePresetSpec = value;
     return true;
   }
   if (arg == "--port") {
@@ -66,6 +133,14 @@ HostCliParseResult parseHostCliArgs(int argc, char** argv) {
     }
     if (arg == "--version") {
       result.options.showVersion = true;
+      continue;
+    }
+    if (arg == "--list-files") {
+      result.options.listFiles = true;
+      continue;
+    }
+    if (arg == "--init-presets") {
+      result.options.initPresets = true;
       continue;
     }
     if (arg.rfind("--", 0) == 0) {
@@ -104,7 +179,29 @@ void printHostCliHelp(std::ostream& out) {
     << "  --config-dir <path>   Override the configuration directory\n"
     << "  --host <address>      Bind address for the future native server\n"
     << "  --port <number>       Bind port for the future native server\n"
-    << "  --log-level <level>   Set the bootstrap log level\n";
+    << "  --log-level <level>   Set the bootstrap log level\n"
+    << "  --resolve-path <path> Resolve a WLED logical file path inside the config root\n\n"
+    << "  --read-file <path>    Read a WLED logical file path inside the config root\n"
+    << "  --copy-file <a:b>     Copy one WLED logical file path to another inside the config root\n\n"
+    << "  --rename-file <a:b>   Rename one WLED logical file path to another inside the config root\n"
+    << "  --delete-file <path>  Delete a WLED logical file path inside the config root\n\n"
+    << "  --compare-files <a:b> Compare two WLED logical file paths inside the config root\n"
+    << "  --validate-json <p>   Validate a WLED logical JSON file inside the config root\n"
+    << "  --backup-file <path>  Create a WLED backup file named bkp.<path>\n"
+    << "  --restore-file <path> Restore a WLED backup file named bkp.<path>\n"
+    << "  --has-backup <path>   Check whether a WLED backup file named bkp.<path> exists\n"
+    << "  --list-files          List JSON files in the config root except secrets files\n"
+    << "  --blend-color <a:b:n> Blend two hex colors with WLED color_blend() using blend 0-255\n"
+    << "  --fade-color <c:n[:v]> Fade one hex color with WLED color_fade() using amount 0-255 and optional video flag 0/1\n"
+    << "  --prng-seq <s:n>      Emit n PRNG values from seed s using WLED prng.h\n\n"
+    << "  --playlist-run <p:s:t> Load a playlist JSON file from the config root, run s ticks, and advance t ms per tick\n\n"
+    << "  --init-presets        Recreate presets.json with the original WLED bootstrap object if it is missing\n"
+    << "  --preset-name <id>    Read preset id from presets.json using original preset-file logic\n"
+    << "  --delete-preset <id>  Clear preset id from presets.json using original preset-file logic\n\n"
+    << "Config directory priority:\n"
+    << "  1. --config-dir\n"
+    << "  2. WLED_CONFIG_DIR\n"
+    << "  3. Platform default (macOS: ~/Library/Application Support/WLED, Linux: $XDG_CONFIG_HOME/wled or ~/.config/wled)\n";
 }
 
 void printHostCliVersion(std::ostream& out) {

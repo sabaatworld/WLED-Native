@@ -11,11 +11,21 @@ endif()
 set(WLED_VERSION_STRING "${CMAKE_MATCH_1}")
 
 add_executable(wled-native
+  wled00/file.cpp
+  wled00/playlist.cpp
+  wled00/presets.cpp
   wled00/wled_host_cli.cpp
-  wled00/wled_host_main.cpp
+  wled00/wled_host_core.cpp
+  wled00/wled_host_playlist.cpp
+  wled00/wled_host_runtime.cpp
+  wled00/wled_host_storage.cpp
+  wled00/wled_main.cpp
 )
 
 target_compile_features(wled-native PRIVATE cxx_std_17)
+target_include_directories(wled-native PRIVATE
+  ${CMAKE_SOURCE_DIR}/wled00
+)
 target_compile_definitions(wled-native PRIVATE
   WLED_HOST_PRODUCT_NAME="WLED"
   WLED_HOST_VERSION="${WLED_VERSION_STRING}"
