@@ -12,9 +12,8 @@ Here are a few suggestions to make it easier for you to contribute:
 ### Important Developer Infos
 * [Project Structure, Files and Directories](.github/copilot-instructions.md#project-structure-overview) (in our AI instructions)
 * [Instructions for creating usermods](.github/copilot-instructions.md#usermod-guidelines) (in our AI instructions)
-* KB: [Compiling WLED](https://kno.wled.ge/advanced/compiling-wled/) - slightly outdated but still helpful :-)
-* Arduino IDE is not supported any more. Use VSCode with the PlatformIO extension. 
-* [Compiling in VSCode/Platformio](https://github.com/wled/WLED-Docs/issues/161) - modern way without command line or platformio.ini changes.
+* Native build and test flow: `npm ci`, `npm run build`, `npm test`, `scripts/native-build.sh`, `scripts/native-test.sh`
+* Native-port scope, status, and migration decisions live in [`Native-Port-Plan.md`](Native-Port-Plan.md)
 * If you add a new feature, consider making a PR to [``wled-docs``](https://github.com/wled/WLED-Docs) for updating our official documentation.
 
 ### PR from a branch in your own fork
@@ -49,12 +48,12 @@ A good description helps us to review and understand your proposed changes. For 
 
 Before submitting:
 
-- ✅ Does it compile?
+- ✅ Do `npm run build`, `npm test`, and `scripts/native-test.sh` pass?
 - ✅ Does your feature/fix actually work?
 - ✅ Did you break anything else?
-- ✅ Tested on actual hardware if possible?
+- ✅ Did you test the changed native behavior locally if the feature is user-visible?
 
-Mention your testing in the PR description (e.g., "Tested on ESP32 + WS2812B").
+Mention your testing in the PR description.
 
 ## During Review
 

@@ -1,6 +1,7 @@
 
 This directory is intended for project specific (private) libraries.
-PlatformIO will compile them to static libraries and link into executable file.
+The native build picks up libraries from here and links them into the WLED
+host executable.
 
 The source code of each library should be placed in a an own separate directory
 ("lib/your_library_name/[here are source files]").
@@ -15,7 +16,6 @@ For example, see a structure of the following two libraries `Foo` and `Bar`:
 |  |  |--src
 |  |     |- Bar.c
 |  |     |- Bar.h
-|  |  |- library.json (optional, custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
 |  |
 |  |--Foo
 |  |  |- Foo.c
@@ -23,7 +23,7 @@ For example, see a structure of the following two libraries `Foo` and `Bar`:
 |  |
 |  |- README --> THIS FILE
 |
-|- platformio.ini
+|- CMakeLists.txt
 |--src
    |- main.c
 
@@ -39,8 +39,5 @@ int main (void)
 
 ```
 
-PlatformIO Library Dependency Finder will find automatically dependent
-libraries scanning project source files.
-
-More information about PlatformIO Library Dependency Finder
-- https://docs.platformio.org/page/librarymanager/ldf.html
+Keep each library self-contained and include headers from source files that use
+them so the normal native build can resolve dependencies directly.

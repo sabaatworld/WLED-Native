@@ -6,6 +6,43 @@ on:
       - '*'
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  wled_build:
-    uses: ./.github/workflows/build.yml
+  native-build-and-test:
+    name: Native Build and Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web UI
+        run: npm run build
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Build native runtime
+        run: scripts/native-build.sh
+
+      - name: Run native runtime tests
+        run: scripts/native-test.sh

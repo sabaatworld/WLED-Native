@@ -18,13 +18,14 @@ Originally created by [Aircoookie](https://github.com/Aircoookie)
 
 ## Native port status
 
-The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). The current host bootstrap now compiles directly from `wled00/`, resolves the native config root, seeds `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`, persists a stable instance ID for future `/json/info` and Zeroconf compatibility, and exposes logical file read/copy/rename/delete helpers inside that config root:
+The macOS/Linux migration is tracked in [Native-Port-Plan.md](Native-Port-Plan.md). The current host runtime now compiles directly from `wled00/`, resolves the native config root, seeds `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`, persists a stable instance ID for future `/json/info` and Zeroconf compatibility, serves a native HTTP/WebSocket process by default, and still exposes logical file-management helpers through the same entry point:
 
 - `scripts/native-build.sh`
-- `scripts/native-run.sh --help`
+- `scripts/native-run.sh --config-dir <dir>` to start the current native host server
+- `scripts/native-run.sh --exit-after-bootstrap --config-dir <dir>` for non-serving bootstrap diagnostics
 - `scripts/native-test.sh`
 
-The existing PlatformIO firmware workflow remains in the repository during the transition, but native-port work should follow `Native-Port-Plan.md` and these wrapper scripts rather than a separate native status document.
+The old firmware build workflow has been removed from the active repository path. Native-port work should follow `Native-Port-Plan.md` and these wrapper scripts rather than a separate native status document.
 
 ## ⚙️ Features
 - WS2812FX library with more than 100 special effects  

@@ -8,6 +8,7 @@
 struct HostCliOptions {
   bool showHelp = false;
   bool showVersion = false;
+  bool exitAfterBootstrap = false;
   std::string configDir;
   std::string host = "127.0.0.1";
   std::string logLevel = "info";
@@ -22,12 +23,19 @@ struct HostCliOptions {
   std::string restorePath;
   std::string hasBackupPath;
   std::string blendColorSpec;
+  std::string addColorSpec;
   std::string fadeColorSpec;
   std::string prngSequenceSpec;
   std::string playlistRunSpec;
   std::string presetNameSpec;
   std::string deletePresetSpec;
   bool initPresets = false;
+  bool backupConfig = false;
+  bool restoreConfig = false;
+  bool verifyConfig = false;
+  bool resetConfig = false;
+  bool hasConfigBackup = false;
+  bool verifySecrets = false;
   bool listFiles = false;
   int port = 21324;
   std::vector<std::string> positionalArgs;

@@ -3,14 +3,18 @@
 #include "wled_host_runtime.h"
 
 #include "wled_host_cli.h"
-#include "wled_host_core.h"
+#include "wled_host_cfg.h"
 #include "wled_host_playlist.h"
 #include "wled_host_presets.h"
+#include "wled_host_server.h"
 #include "wled_host_storage.h"
+#include "colors.h"
 #include "prng.h"
 
 #include <array>
+#include <atomic>
 #include <cctype>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <iomanip>
@@ -101,6 +105,36 @@ bool parseBlendColorSpec(const std::string& spec, uint32_t& leftColor, uint32_t&
   return true;
 }
 
+bool parseAddColorSpec(const std::string& spec, uint32_t& leftColor, uint32_t& rightColor, bool& preserveRatio) {
+  std::string leftSpec;
+  std::string rightSpec;
+  if (!handleSplitPathSpec("--add-color", spec, leftSpec, rightSpec)) return false;
+
+  std::string preserveSpec;
+  const size_t separator = rightSpec.find(':');
+  if (separator != std::string::npos) {
+    preserveSpec = rightSpec.substr(separator + 1);
+    rightSpec = rightSpec.substr(0, separator);
+  }
+
+  if (!parseHexColor(leftSpec, leftColor) || !parseHexColor(rightSpec, rightColor)) {
+    std::cerr << "Invalid value for --add-color: " << spec << '\n';
+    return false;
+  }
+
+  preserveRatio = false;
+  if (!preserveSpec.empty()) {
+    uint8_t preserveFlag = 0;
+    if (!parseByteValue(preserveSpec, preserveFlag) || preserveFlag > 1U) {
+      std::cerr << "Invalid value for --add-color: " << spec << '\n';
+      return false;
+    }
+    preserveRatio = preserveFlag == 1U;
+  }
+
+  return true;
+}
+
 bool parseFadeColorSpec(const std::string& spec, uint32_t& inputColor, uint8_t& fadeAmount, bool& videoFade) {
   std::string colorSpec;
   std::string amountSpec;
@@ -177,12 +211,23 @@ struct HostRuntimeState {
   std::string instanceId;
 };
 
+std::atomic<bool> g_stopRequested = false;
+
+bool hasCommandAction(const HostCliOptions& options) {
+  return !options.resolvePath.empty() || !options.readPath.empty() || !options.copyPathSpec.empty() || !options.renamePathSpec.empty() ||
+         !options.deletePath.empty() || !options.comparePathSpec.empty() || !options.validatePath.empty() || !options.backupPath.empty() ||
+         !options.restorePath.empty() || !options.hasBackupPath.empty() || options.listFiles || !options.blendColorSpec.empty() ||
+         !options.addColorSpec.empty() || !options.fadeColorSpec.empty() || !options.prngSequenceSpec.empty() || !options.playlistRunSpec.empty() ||
+         options.initPresets || !options.presetNameSpec.empty() || !options.deletePresetSpec.empty() || options.backupConfig ||
+         options.restoreConfig || options.verifyConfig || options.resetConfig || options.hasConfigBackup || options.verifySecrets;
+}
+
 bool initialiseHostRuntime(const HostCliOptions& options, HostRuntimeState& state, std::string& error) {
   state.storage = buildHostStorageLayout(resolveHostConfigDirectory(options.configDir));
   return bootstrapHostStorage(state.storage, state.instanceId, error);
 }
 
-void printRuntimeSummary(const HostCliOptions& options, const HostRuntimeState& state) {
+void printRuntimeSummary(const HostCliOptions& options, const HostRuntimeState& state, const char* runtimeStatus) {
   std::cout
     << "WLED host runtime bootstrap\n"
     << "Config root: " << state.storage.configDir.string() << '\n'
@@ -195,7 +240,16 @@ void printRuntimeSummary(const HostCliOptions& options, const HostRuntimeState& 
     << "Bind port: " << options.port << '\n'
     << "Log level: " << options.logLevel << '\n'
     << "Core status: color-utils+prng+playlist+presets enabled\n"
-    << "Runtime status: bootstrap-only\n";
+    << "Runtime status: " << runtimeStatus << '\n';
+}
+
+void handleSignal(int signalNumber) {
+  if (signalNumber == SIGINT || signalNumber == SIGTERM) g_stopRequested.store(true);
+}
+
+void installSignalHandlers() {
+  std::signal(SIGINT, handleSignal);
+  std::signal(SIGTERM, handleSignal);
 }
 
 } // namespace
@@ -227,7 +281,31 @@ int runWledHost(int argc, char** argv) {
   }
   setActiveHostStorageLayout(&runtimeState.storage);
 
-  printRuntimeSummary(parseResult.options, runtimeState);
+  const bool commandAction = hasCommandAction(parseResult.options);
+  const bool bootstrapOnly = parseResult.options.exitAfterBootstrap || commandAction;
+  printRuntimeSummary(parseResult.options, runtimeState, bootstrapOnly ? "bootstrap-only" : "starting-server");
+
+  if (!bootstrapOnly) {
+    HostServer server;
+    HostServerOptions serverOptions;
+    serverOptions.host = parseResult.options.host;
+    serverOptions.port = parseResult.options.port;
+    serverOptions.productName = "WLED";
+    serverOptions.version = WLED_HOST_VERSION;
+    serverOptions.instanceId = runtimeState.instanceId;
+    serverOptions.storage = runtimeState.storage;
+
+    if (!server.start(serverOptions, error)) {
+      std::cerr << error << '\n';
+      return 1;
+    }
+
+    installSignalHandlers();
+    std::cout << "Listening on: " << server.listeningUrl() << '\n';
+    std::cout.flush();
+    server.runUntilStopped(g_stopRequested);
+    return 0;
+  }
 
   if (!parseResult.options.resolvePath.empty()) {
     std::filesystem::path resolvedPath;
@@ -358,6 +436,15 @@ int runWledHost(int argc, char** argv) {
     std::cout << "Blended color: " << formatColor(blendedColor) << '\n';
   }
 
+  if (!parseResult.options.addColorSpec.empty()) {
+    uint32_t leftColor = 0;
+    uint32_t rightColor = 0;
+    bool preserveRatio = false;
+    if (!parseAddColorSpec(parseResult.options.addColorSpec, leftColor, rightColor, preserveRatio)) return 1;
+    const uint32_t addedColor = color_add(leftColor, rightColor, preserveRatio);
+    std::cout << "Added color: " << formatColor(addedColor) << '\n';
+  }
+
   if (!parseResult.options.fadeColorSpec.empty()) {
     uint32_t inputColor = 0;
     uint8_t fadeAmount = 0;
@@ -443,6 +530,51 @@ int runWledHost(int argc, char** argv) {
     if (!parsePresetIdSpec("--delete-preset", parseResult.options.deletePresetSpec, presetId)) return 1;
     deletePreset(presetId);
     std::cout << "Deleted preset: " << static_cast<unsigned>(presetId) << '\n';
+  }
+
+  if (parseResult.options.backupConfig) {
+    if (!backupConfig()) {
+      std::cerr << "Unable to back up cfg.json\n";
+      return 1;
+    }
+    std::cout << "Backed up config: /cfg.json\n";
+  }
+
+  if (parseResult.options.restoreConfig) {
+    if (!restoreConfig()) {
+      std::cerr << "Unable to restore cfg.json\n";
+      return 1;
+    }
+    std::cout << "Restored config: /cfg.json\n";
+  }
+
+  if (parseResult.options.verifyConfig) {
+    if (!verifyConfig()) {
+      std::cerr << "Invalid config file: /cfg.json\n";
+      return 1;
+    }
+    std::cout << "Valid config file: /cfg.json\n";
+  }
+
+  if (parseResult.options.resetConfig) {
+    resetConfig();
+    std::cout << "Reset config file: /cfg.json\n";
+  }
+
+  if (parseResult.options.hasConfigBackup) {
+    if (!configBackupExists()) {
+      std::cerr << "Config backup missing: /bkp.cfg.json\n";
+      return 1;
+    }
+    std::cout << "Config backup exists: /bkp.cfg.json\n";
+  }
+
+  if (parseResult.options.verifySecrets) {
+    if (!verifyConfigSec()) {
+      std::cerr << "Invalid secrets file: /wsec.json\n";
+      return 1;
+    }
+    std::cout << "Valid secrets file: /wsec.json\n";
   }
 
   return 0;

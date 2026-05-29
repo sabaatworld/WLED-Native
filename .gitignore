@@ -3,9 +3,6 @@
 .direnv
 .DS_Store
 .idea
-.pio
-.pioenvs
-.piolibdeps
 .vscode
 compile_commands.json
 __pycache__/
@@ -15,12 +12,9 @@ __pycache__/
 /managed_components
 
 esp01-update.sh
-platformio_override.ini
-platformio_release.ini
 replace_fs.py
 wled-update.sh
 
-/build_output/
 /build/
 /node_modules/
 /logs/

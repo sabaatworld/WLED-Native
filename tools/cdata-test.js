@@ -77,22 +77,41 @@ describe('Function', () => {
 describe('Script', () => {
   const folderPath = 'wled00';
   const dataPath = path.join(folderPath, 'data');
+  const backupDataPath = 'wled00Backup';
+  const backupCdataPath = 'cdata.bak.js';
+  const backupPackagePath = 'package.bak.json';
+
+  function ensurePrimaryDataPath() {
+    if (fs.existsSync(dataPath)) return;
+    fs.cpSync('wled00-backup/data', dataPath, { recursive: true });
+  }
+
+  async function runCdata(args = '') {
+    const suffix = args ? ` ${args}` : '';
+    return execPromise(`node tools/cdata.js${suffix}`);
+  }
 
   before(() => {
     process.env.NODE_ENV = 'production';
+    ensurePrimaryDataPath();
+
+    fs.rmSync(backupDataPath, { recursive: true, force: true });
+    fs.rmSync(backupCdataPath, { force: true });
+    fs.rmSync(backupPackagePath, { force: true });
+
     // Backup files
-    fs.cpSync("wled00/data", "wled00Backup", { recursive: true });
-    fs.cpSync("tools/cdata.js", "cdata.bak.js");
-    fs.cpSync("package.json", "package.bak.json");
+    fs.cpSync(dataPath, backupDataPath, { recursive: true });
+    fs.cpSync('tools/cdata.js', backupCdataPath);
+    fs.cpSync('package.json', backupPackagePath);
   });
   after(() => {
     // Restore backup
-    fs.rmSync("wled00/data", { recursive: true });
-    fs.renameSync("wled00Backup", "wled00/data");
-    fs.rmSync("tools/cdata.js");
-    fs.renameSync("cdata.bak.js", "tools/cdata.js");
-    fs.rmSync("package.json");
-    fs.renameSync("package.bak.json", "package.json");
+    fs.rmSync(dataPath, { recursive: true, force: true });
+    if (fs.existsSync(backupDataPath)) fs.renameSync(backupDataPath, dataPath);
+    fs.rmSync('tools/cdata.js', { force: true });
+    if (fs.existsSync(backupCdataPath)) fs.renameSync(backupCdataPath, 'tools/cdata.js');
+    fs.rmSync('package.json', { force: true });
+    if (fs.existsSync(backupPackagePath)) fs.renameSync(backupPackagePath, 'package.json');
   });
 
   // delete all html_*.h files
@@ -113,18 +132,24 @@ describe('Script', () => {
   }
 
   async function runAndCheckIfBuiltFilesExist() {
-    await execPromise('node tools/cdata.js');
+    await runCdata();
     await checkIfBuiltFilesExist();
   }
 
-  async function checkIfFileWasNewlyCreated(file) {
-    const modifiedTime = fs.statSync(file).mtimeMs;
-    assert(Date.now() - modifiedTime < 850, file + ' was not modified');
+  function getModifiedTime(file) {
+    return fs.statSync(file).mtimeMs;
+  }
+
+  function assertFileWasModifiedAfter(file, previousModifiedTime) {
+    const modifiedTime = getModifiedTime(file);
+    assert(modifiedTime > previousModifiedTime, file + ' was not modified');
   }
 
   async function testFileModification(sourceFilePath, resultFile) {
     // run cdata.js to ensure html_*.h files are created
-    await execPromise('node tools/cdata.js');
+    await runCdata();
+    const resultFilePath = path.join(folderPath, resultFile);
+    const previousModifiedTime = getModifiedTime(resultFilePath);
 
     // modify file
     fs.appendFileSync(sourceFilePath, ' ');
@@ -132,9 +157,9 @@ describe('Script', () => {
     await new Promise(resolve => setTimeout(resolve, 1400));
 
     // run script cdata.js again and wait for it to finish
-    await execPromise('node tools/cdata.js');
+    await runCdata();
 
-    await checkIfFileWasNewlyCreated(path.join(folderPath, resultFile));
+    assertFileWasModifiedAfter(resultFilePath, previousModifiedTime);
   }
 
   describe('should build if', () => {
@@ -157,13 +182,16 @@ describe('Script', () => {
     });
 
     it('script was executed with -f or --force', async () => {
-      await execPromise('node tools/cdata.js');
+      await runCdata();
+      const htmlUiPath = path.join(folderPath, 'html_ui.h');
+      let previousModifiedTime = getModifiedTime(htmlUiPath);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      await execPromise('node tools/cdata.js --force');
-      await checkIfFileWasNewlyCreated(path.join(folderPath, 'html_ui.h'));
+      await runCdata('--force');
+      assertFileWasModifiedAfter(htmlUiPath, previousModifiedTime);
+      previousModifiedTime = getModifiedTime(htmlUiPath);
       await new Promise(resolve => setTimeout(resolve, 1000));
-      await execPromise('node tools/cdata.js -f');
-      await checkIfFileWasNewlyCreated(path.join(folderPath, 'html_ui.h'));
+      await runCdata('-f');
+      assertFileWasModifiedAfter(htmlUiPath, previousModifiedTime);
     });
 
     it('a file changes', async () => {
@@ -202,17 +230,15 @@ describe('Script', () => {
       await deleteBuiltFiles();
 
       // run script cdata.js and wait for it to finish
-      let startTime = Date.now();
-      await execPromise('node tools/cdata.js');
-      const firstRunTime = Date.now() - startTime;
+      await runCdata();
+      const htmlUiPath = path.join(folderPath, 'html_ui.h');
+      const previousModifiedTime = getModifiedTime(htmlUiPath);
 
       // run script cdata.js and wait for it to finish
-      startTime = Date.now();
-      await execPromise('node tools/cdata.js');
-      const secondRunTime = Date.now() - startTime;
+      const { stdout } = await runCdata();
 
-      // check if second run was faster than the first (must be at least 2x faster)
-      assert(secondRunTime < firstRunTime / 2, 'html_*.h files were rebuilt');
+      assert(stdout.includes('Web UI is already built'), 'cdata.js did not report an already-built UI');
+      assert.strictEqual(getModifiedTime(htmlUiPath), previousModifiedTime, 'html_*.h files were rebuilt');
     });
   });
 });

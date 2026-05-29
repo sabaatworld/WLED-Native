@@ -22,7 +22,7 @@ const char* kVersionString = WLED_HOST_VERSION;
 bool requiresValue(const std::string& arg) {
   return arg == "--config-dir" || arg == "--host" || arg == "--port" || arg == "--log-level" || arg == "--resolve-path" || arg == "--read-file" || arg == "--copy-file" ||
          arg == "--rename-file" || arg == "--delete-file" || arg == "--compare-files" || arg == "--validate-json" || arg == "--backup-file" || arg == "--restore-file" ||
-         arg == "--has-backup" || arg == "--blend-color" || arg == "--fade-color" || arg == "--prng-seq" || arg == "--playlist-run" || arg == "--preset-name" ||
+         arg == "--has-backup" || arg == "--blend-color" || arg == "--add-color" || arg == "--fade-color" || arg == "--prng-seq" || arg == "--playlist-run" || arg == "--preset-name" ||
          arg == "--delete-preset";
 }
 
@@ -83,6 +83,10 @@ bool assignOptionValue(HostCliOptions& options, const std::string& arg, const st
     options.blendColorSpec = value;
     return true;
   }
+  if (arg == "--add-color") {
+    options.addColorSpec = value;
+    return true;
+  }
   if (arg == "--fade-color") {
     options.fadeColorSpec = value;
     return true;
@@ -106,7 +110,7 @@ bool assignOptionValue(HostCliOptions& options, const std::string& arg, const st
   if (arg == "--port") {
     char* end = nullptr;
     const long parsedPort = std::strtol(value.c_str(), &end, 10);
-    if (!end || *end != '\0' || parsedPort < 1 || parsedPort > 65535) {
+    if (!end || *end != '\0' || parsedPort < 0 || parsedPort > 65535) {
       error = "Invalid value for --port: " + value;
       return false;
     }
@@ -135,12 +139,40 @@ HostCliParseResult parseHostCliArgs(int argc, char** argv) {
       result.options.showVersion = true;
       continue;
     }
+    if (arg == "--exit-after-bootstrap") {
+      result.options.exitAfterBootstrap = true;
+      continue;
+    }
     if (arg == "--list-files") {
       result.options.listFiles = true;
       continue;
     }
     if (arg == "--init-presets") {
       result.options.initPresets = true;
+      continue;
+    }
+    if (arg == "--backup-config") {
+      result.options.backupConfig = true;
+      continue;
+    }
+    if (arg == "--restore-config") {
+      result.options.restoreConfig = true;
+      continue;
+    }
+    if (arg == "--verify-config") {
+      result.options.verifyConfig = true;
+      continue;
+    }
+    if (arg == "--reset-config") {
+      result.options.resetConfig = true;
+      continue;
+    }
+    if (arg == "--has-config-backup") {
+      result.options.hasConfigBackup = true;
+      continue;
+    }
+    if (arg == "--verify-secrets") {
+      result.options.verifySecrets = true;
       continue;
     }
     if (arg.rfind("--", 0) == 0) {
@@ -170,16 +202,17 @@ HostCliParseResult parseHostCliArgs(int argc, char** argv) {
 
 void printHostCliHelp(std::ostream& out) {
   out
-    << "WLED host bootstrap CLI\n"
+    << "WLED native host runtime\n"
     << "Usage: WLED [options]\n"
     << "Executable: wled-native\n\n"
     << "Options:\n"
     << "  --help                Show this help text and exit\n"
     << "  --version             Show the WLED version and exit\n"
     << "  --config-dir <path>   Override the configuration directory\n"
-    << "  --host <address>      Bind address for the future native server\n"
-    << "  --port <number>       Bind port for the future native server\n"
-    << "  --log-level <level>   Set the bootstrap log level\n"
+    << "  --exit-after-bootstrap Print runtime bootstrap details and exit without serving\n"
+    << "  --host <address>      Bind address for the native server (default: 127.0.0.1)\n"
+    << "  --port <number>       Bind port for the native server (use 0 for an ephemeral port)\n"
+    << "  --log-level <level>   Set the runtime log level\n"
     << "  --resolve-path <path> Resolve a WLED logical file path inside the config root\n\n"
     << "  --read-file <path>    Read a WLED logical file path inside the config root\n"
     << "  --copy-file <a:b>     Copy one WLED logical file path to another inside the config root\n\n"
@@ -192,12 +225,19 @@ void printHostCliHelp(std::ostream& out) {
     << "  --has-backup <path>   Check whether a WLED backup file named bkp.<path> exists\n"
     << "  --list-files          List JSON files in the config root except secrets files\n"
     << "  --blend-color <a:b:n> Blend two hex colors with WLED color_blend() using blend 0-255\n"
+    << "  --add-color <a:b[:p]> Add two hex colors with WLED color_add() and optional preserve-ratio flag 0/1\n"
     << "  --fade-color <c:n[:v]> Fade one hex color with WLED color_fade() using amount 0-255 and optional video flag 0/1\n"
     << "  --prng-seq <s:n>      Emit n PRNG values from seed s using WLED prng.h\n\n"
     << "  --playlist-run <p:s:t> Load a playlist JSON file from the config root, run s ticks, and advance t ms per tick\n\n"
     << "  --init-presets        Recreate presets.json with the original WLED bootstrap object if it is missing\n"
     << "  --preset-name <id>    Read preset id from presets.json using original preset-file logic\n"
     << "  --delete-preset <id>  Clear preset id from presets.json using original preset-file logic\n\n"
+    << "  --backup-config       Create a backup for cfg.json using original config helpers\n"
+    << "  --restore-config      Restore cfg.json from its backup using original config helpers\n"
+    << "  --verify-config       Validate cfg.json using original config helpers\n"
+    << "  --reset-config        Rename cfg.json to rst.cfg.json using original config helpers\n"
+    << "  --has-config-backup   Check whether cfg.json has a backup using original config helpers\n"
+    << "  --verify-secrets      Validate wsec.json using original config helpers\n\n"
     << "Config directory priority:\n"
     << "  1. --config-dir\n"
     << "  2. WLED_CONFIG_DIR\n"

@@ -29,9 +29,9 @@ This plan is the single source of truth for native-port scope, status, and execu
 
 ## Current Repo Analysis
 
-- `AGENTS.md`, `.github/copilot-instructions.md`, and `.github/agent-build.instructions.md` currently describe a PlatformIO/Arduino firmware workflow. During the transition, they must point contributors back to this plan rather than to a separate native-porting document.
+- `AGENTS.md`, `.github/copilot-instructions.md`, and `.github/agent-build.instructions.md` now point contributors to the native host workflow and `Native-Port-Plan.md`; keep them aligned as commands and CI evolve.
 - `readme.md` describes WLED as ESP32/ESP8266 firmware and lists ESP-specific features such as access point mode, OTA, and compatible hardware. Native user-visible behavior changes must be reflected there when implementation tasks make them real.
-- `platformio.ini`, `pio-scripts/`, `boards/`, `requirements.txt`, and GitHub workflows are centered on ESP firmware environments.
+- The active PlatformIO config, helper scripts, board definitions, Python requirements, and firmware-centric GitHub workflows have been removed from the repository path. Remaining legacy mentions live mostly in historical notes and usermod-era documentation that will be reduced as those areas are ported or removed.
 - `wled00/wled.h` is the highest-impact dependency hub. It directly includes Arduino, WiFi/ETH, LittleFS, ESPAsyncWebServer, DNSServer, WiFiUDP, AsyncMqttClient, OTA, IR, ESP-NOW, and generated web headers.
 - `wled00/wled.cpp` contains the runtime lifecycle, filesystem mount, WiFi setup, UDP/WebSocket setup, OTA/IR setup, heap/PSRAM watchdog logic, and main loop.
 - `wled00/bus_manager.*` and `wled00/bus_wrapper.h` contain the current LED output boundary. Modify these original files to remove ESP physical bus drivers and reduce the host path to the render-buffer/core-light-engine boundary; do not add null, virtual, preview, or GPIO-backed output buses.
@@ -115,9 +115,9 @@ Before finishing any native-port change:
 ## Unified Migration Checklist
 
 Current implementation state:
-- The host build currently compiles `wled00/wled_main.cpp` plus the host-only bootstrap/storage helpers under `wled00/`, and it exits after bootstrap/status reporting instead of entering the original WLED runtime loop.
+- The host build currently compiles `wled00/wled_main.cpp` plus host-side runtime/storage/server helpers under `wled00/`, starts a native HTTP/WebSocket process by default, and still exposes bootstrap/status reporting plus file/config helper subcommands through the same entry point.
 - The native CLI now covers config-root resolution, identity persistence, logical-path validation, file read/copy/rename/delete, file compare, JSON validation, backup/restore, backup existence checks, and JSON-file listing inside the config root.
-- Original runtime files such as `file.cpp`, `cfg.cpp`, `presets.cpp`, `playlist.cpp`, `wled.cpp`, the HTTP/WebSocket handlers, and the networking stack are still not part of the host binary, so the native port remains bootstrap-only.
+- Original runtime files such as `file.cpp`, `cfg.cpp`, `presets.cpp`, and `playlist.cpp` are already part of the host binary, but the real `wled.cpp` runtime loop, original HTTP/WebSocket handlers, Zeroconf, and network protocol stack are still not part of the native runtime path.
 
 - [x] Establish the in-place migration baseline, inventory tests/build outputs, and redirect contributor guidance back to this plan.
 - [x] Add a host build/run entry point that compiles original `wled00/` sources and exposes a stable CLI contract.
@@ -220,6 +220,7 @@ Implementation notes:
 - Replace ESP watchdog/heap-panic behavior with host diagnostics and clean exit/restart request semantics.
 - Avoid busy loops that burn CPU on host systems.
 - Keep secrets such as `wsec.json` inside the config root, not generated build directories.
+- Preserve the original startup dependency order from `wled.cpp`: filesystem/config recovery, config deserialize, strip/bus finalization, usermod setup, route registration, then interface/service bring-up. Native startup can replace the WiFi-specific trigger points, but it cannot safely start discovery, WebSocket/JSON state serving, or LED output before config and bus state exist.
 
 Tests and verification:
 - Update existing tests for any changed web asset/config assumptions.
@@ -228,6 +229,9 @@ Tests and verification:
 
 Area log:
 - Actions taken:
+- Re-read the startup flow in `wled00-backup/` and the active `wled00/` tree to map the original boot ordering before continuing native server work.
+- Added a native default server mode to the host runtime so `scripts/native-run.sh` now stays up by default, while `--exit-after-bootstrap` preserves the non-serving diagnostic path for smoke tests and scripted storage/config operations.
+- Added a host HTTP/WebSocket server scaffold under `wled00/` that serves `/`, `/json`, `/json/info`, `/json/state`, `/json/si`, `/json/effects`, `/json/palettes`, `/json/fxdata`, `/json/cfg`, `/json/nodes`, `/json/pins`, `/version`, and `/ws` from the current native runtime state.
 - Added a host runtime bootstrap layer under `wled00/` that resolves the config root using `--config-dir`, `WLED_CONFIG_DIR`, macOS Application Support, and Linux XDG defaults.
 - Switched the native executable entry point from the standalone `wled00/wled_host_main.cpp` shim to the original `wled00/wled_main.cpp`, with the host path delegating to a new in-tree runtime bootstrap.
 - Added persisted host identity bootstrap via a config-root `instance-id` file containing a locally administered MAC-compatible identifier for future `/json/info.mac` and Zeroconf work.
@@ -237,14 +241,27 @@ Area log:
 - Added host rename/delete primitives for logical config-root files so the host storage contract now covers the next `file.cpp` restore/backup cleanup operations without inventing a separate filesystem shim.
 - Added host compare, JSON validation, backup, restore, backup-existence, and root-listing primitives so the native storage layer now covers most of the original `file.cpp` helper surface before wiring that code into host builds.
 - Expanded native smoke coverage so the Node test flow and `scripts/native-test.sh` verify config-root resolution and identity persistence in addition to `--help` and `--version`.
+- Added host wrappers for original `cfg.cpp` backup, restore, reset, validation, and secrets-validation helpers so the native CLI now exercises more of the original config lifecycle surface through in-place source files instead of bootstrap-only storage helpers.
+- Moved host color-helper ownership from the duplicated `wled_host_core.cpp` into the original `wled00/colors.cpp` / `wled00/colors.h` files, keeping only host random-wheel helpers in `wled_host_core.cpp`.
+- Added a native CLI `--add-color` command backed by `color_add()` and extended the smoke tests so the host path now validates blend, add, and fade behavior through the original `colors.cpp` source file.
+- Restored the missing `wled00/data` source tree from the `wled00-backup/data` recovery snapshot so the normal web build and `cdata`-based validation flow work again in the original product tree.
+- Hardened `tools/cdata-test.js` so it restores `wled00/data`, `tools/cdata.js`, and `package.json` reliably after interrupted runs and validates rebuild behavior using direct file mtime comparisons instead of brittle wall-clock thresholds.
 - Discrepancies or deviations:
 - This phase still does not generate the full runtime-populated `cfg.json`/`wsec.json` schema; it only seeds valid bootstrap JSON files because the original config/schema serialization code is still coupled to Arduino/AsyncWebServer types and needs a larger in-place runtime extraction.
+- The restored `wled00/data` tree currently comes from the frozen `wled00-backup` snapshot, so later UI work should treat it as recovered source and continue editing only `wled00/data`, not the backup tree.
+- The current host server is an in-tree scaffold, not the original `wled_server.cpp` / `ws.cpp` / `json.cpp` path yet. It preserves the basic runtime contract and test surface, but it does not count as completion of the original handler port.
 - Key decisions and reasoning:
+- Treat the backup snapshot as confirmation of the intended startup contract rather than as a second implementation: both trees show that WLED startup is not “start HTTP first”, it is “load config, build strip/bus state, then expose services”.
+- Kept the host runtime entry point unified instead of creating a separate server binary, so bootstrap diagnostics, CLI helpers, and the default server path all share the same config-root resolution and identity bootstrap.
+- Allowed `--port 0` in the host CLI so tests can allocate ephemeral local ports safely without hard-coding a listening port in parallel test runs.
 - Chose a simple `instance-id` text file in the config root for the first persisted identity step so the host bootstrap can provide stable Home Assistant-compatible identity without prematurely inventing a partial `cfg.json` schema.
 - Seeded the real WLED filenames with minimal valid JSON instead of inventing a broad host `FS`/`File` shim, which keeps the next filesystem/config extraction focused on replacing direct `WLED_FS` usage in original source files.
 - Moved the native entry point into `wled00/wled_main.cpp` so the host build advances through original source files instead of growing a separate top-level runtime executable path.
 - Kept the new JSON validation local to the host bootstrap/storage layer rather than pulling ArduinoJson into the bootstrap binary, because the immediate goal is structural parity for `file.cpp` helpers while the original config/preset code is still not part of the host compile.
 - Extended the host CLI rather than creating a test-only helper so the same config-root file operations remain available for future bootstrap debugging while the original storage code is still being extracted.
+- Pulled host color logic into the original `colors.cpp` file with a focused non-Arduino branch instead of growing the duplicate host color module further, because the plan requires using original `wled00/` sources wherever feasible and color math is already a stable, well-bounded portability target.
+- Restored `wled00/data` into the main tree instead of teaching the build/test workflow to read from `wled00-backup`, because the migration target remains the original `wled00/` product tree and the backup snapshot is only acceptable as recovery input.
+- Reworked the `cdata` test assertions around actual output mtimes and explicit “already built” output so the web-build regression suite measures the real rebuild contract instead of depending on sub-second timing assumptions that break on slower machines.
 - Verification performed:
 - Updated the native CLI tests to assert config-root selection and repeated identity stability for the same config directory.
 - Updated the native CLI tests to assert bootstrap creation of `cfg.json`, `wsec.json`, `presets.json`, and `tmp.json`.
@@ -252,12 +269,18 @@ Area log:
 - Updated the native CLI tests and wrapper smoke script to verify secure logical-file reads and copies inside the config root.
 - Updated the native CLI tests and wrapper smoke script to verify secure logical-file renames and deletions inside the config root.
 - Added native CLI tests and wrapper smoke coverage for file comparison, JSON validation, backup creation, backup restoration, backup existence checks, and root JSON-file listing that hides secrets files.
-- Ran `node --test test/native-cli.test.js`, `scripts/native-build.sh`, `scripts/native-test.sh`, `npm run build`, and `npm test` after the storage expansion.
+- Added native CLI tests and wrapper smoke coverage for the original `cfg.cpp` helper path plus `color_add()` routed through `wled00/colors.cpp`.
+- Added native CLI tests for default server startup, JSON route responses, HTTP state updates, and WebSocket state propagation, then ran them successfully outside the sandbox because the sandbox blocks local listening sockets.
+- Restored `wled00/data`, then ran `node --test tools/cdata-test.js`, `npm run build`, `npm test`, and `scripts/native-test.sh` successfully from the recovered baseline.
 - PlatformIO firmware validation was not rerun in this environment because the current native task only touched host-only files and the repo still lacks a verified local `pio` toolchain here.
 - Newly discovered tasks or risks:
+- `initServer()` is only route registration; the actual runtime bring-up is deferred until `handleConnection()` reaches `initInterfaces()`. A native port that starts serving before replacing that later stage will be observably incomplete even if an HTTP listener exists.
+- The current host bootstrap still lacks the original `beginStrip()` / `strip.finalizeInit()` path, so it cannot honestly claim “WLED started” for users who expect configured buses, presets, playlists, and service-loop-driven effects to be live at process start.
+- The host server scaffold currently serves a minimal runtime state that is not backed by the original render loop, segment engine, or network integrations, so browser/API compatibility will drift until the real `wled.cpp` lifecycle is ported.
   - A shared host-facing configuration/bootstrap layer is needed so runtime code, tests, and future binaries do not duplicate CLI parsing or config-root resolution logic.
   - Package version/build metadata likely needs a reusable interface inside `wled00/`, not only the standalone bootstrap CLI.
   - The next runtime pass needs to replace Arduino-bound config serialization so host bootstrap can create real WLED config files instead of only the identity seed.
+  - The restored `wled00/data` content should eventually be compared against the active trunk source if newer UI changes are expected elsewhere, because the recovery snapshot may lag future upstream edits even though it unblocks the local build/test flow.
   - `file.cpp` still needs to consume the new host storage primitives directly from original source builds; the helper surface now exists, but `cfg.cpp`, `presets.cpp`, and the rest of the original runtime are still not compiled into the host binary.
 
 ### ESP-only hardware removal, unsupported bundled usermods, UI/API cleanup, and physical output removal
@@ -373,6 +396,8 @@ Area log:
   - Host-enabled the original `wled00/presets.cpp` file for the preset-file bootstrap/name/delete slice by adding a narrow host preset header, wiring the active config-root layout into original preset callers, and compiling `presets.cpp` into the native binary instead of keeping preset-file behavior in generic storage helpers only.
   - Host-enabled the original `wled00/file.cpp` helper surface for the current host build by adding a host branch that resolves WLED logical paths against the active config root and provides original object-file read/write, copy, backup, restore, backup-existence, JSON validation, and dump helpers on macOS/Linux.
   - Switched the host `presets.cpp` branch to call the new original `file.cpp` host helpers for preset object reads/writes, so preset bootstrap/name/delete no longer maintain a duplicate file-format implementation.
+  - Host-enabled the original `wled00/cfg.cpp` wrapper surface for config-file control by compiling a host branch that now routes `cfg.json` backup, restore, verify, backup-existence, reset, and `wsec.json` validation through the original config entry points.
+  - Extended the native CLI with `--backup-config`, `--restore-config`, `--verify-config`, `--reset-config`, `--has-config-backup`, and `--verify-secrets` so the host process now exercises original `cfg.cpp` wrappers through the same runtime entry point.
   - Extended the native CLI with `--init-presets`, `--preset-name`, and `--delete-preset` so the host process now exercises original preset-file naming/bootstrap/delete behavior through the same entry point used for other host runtime checks.
   - Added native smoke coverage for the new core CLI path in `test/native-cli.test.js` and `scripts/native-test.sh` rather than creating a native-only side harness.
 - Discrepancies or deviations:
@@ -381,6 +406,7 @@ Area log:
   - FastLED-derived palette/Hue helpers were not pulled into the host binary for this slice because the current CLI/runtime checks do not need them yet; keeping them out avoids a premature `pgmspace`/palette dependency before the actual render path is ported.
   - The current `presets.cpp` host branch intentionally stops at bootstrap/name/delete operations; `savePreset()`, `handlePresets()`, and preset application still depend on broader state/deserialization/runtime plumbing that should be ported together rather than stubbed piecemeal.
   - The current host `file.cpp` branch uses whole-document JSON rewrite semantics instead of the original in-place whitespace-preserving mutation strategy, because host correctness and integration with the existing config root matter more right now than preserving the ESP flash-optimization path.
+  - The current `cfg.cpp` host branch intentionally stops at file-control wrappers; full config serialization/deserialization still depends on a much larger set of runtime globals, network settings, bus config, and usermod integration that should be ported as one runtime/config slice.
 - Key decisions and reasoning:
   - Keep effects, presets, playlists, timers, segments, and live-view compatibility by rendering into the normal buffer, while deleting ESP bus/output subclasses instead of replacing them with virtual outputs.
   - Started the render/core migration with `colors.cpp` and `prng.h` because they are original WLED logic that can be ported in place with limited host support, which removes real Arduino coupling now without inventing a broad emulation surface.
@@ -388,6 +414,7 @@ Area log:
   - Ported `playlist.cpp` by giving it a narrow host boundary for clock advancement, transition storage, and preset application callbacks, which keeps the original playlist state machine intact while removing its transitive `wled.h` dependency from the host build.
   - Ported the file-oriented `presets.cpp` operations next because they are a natural follow-on to playlist support and let the host binary start using original preset-file code before the full preset-application path is ready.
   - Ported `file.cpp` next because it is the shared storage dependency behind presets and future config/runtime work; moving preset-file operations onto original file helpers reduces duplicated host logic and prepares later `cfg.cpp` / `json.cpp` slices.
+  - Ported the file-control portion of `cfg.cpp` next because it converts another public WLED config surface to original source ownership without forcing the full configuration schema/runtime graph into the host build prematurely.
 - Verification performed:
   - Checked cross-area references so HTTP/browser validation remains tied to the web/API area and networking/control protocols remain tied to the host networking area.
   - Deferred verification until the full edited slice was complete, per user direction; fresh build/test results are recorded after this patch set lands.
@@ -395,12 +422,14 @@ Area log:
   - Extended the same native verification loop to cover `--playlist-run`; the rebuilt host binary now loads a config-root playlist JSON, advances the original `wled00/playlist.cpp` state machine for three 150 ms ticks, and reports the expected preset sequence `11 22 33` with a final transition of `700` ms.
   - Extended the same native verification loop to cover `--init-presets`, `--preset-name`, and `--delete-preset`; the rebuilt host binary now recreates `presets.json`, reads preset name `Evening` from preset `2`, and rewrites preset `2` as an empty object using original `wled00/presets.cpp` host logic.
   - Re-ran `scripts/native-build.sh`, `node --test test/native-cli.test.js`, and `scripts/native-test.sh` after compiling `wled00/file.cpp` into the host target and moving the preset host branch onto those original file helpers; the full native CLI loop still passes.
+  - Extended the same native verification loop to cover `--backup-config`, `--restore-config`, `--verify-config`, `--reset-config`, `--has-config-backup`, and `--verify-secrets`; the rebuilt host binary now routes those operations through original `wled00/cfg.cpp` wrappers and passes both the Node CLI tests and the shell smoke script.
   - `npm run build` and therefore full `npm test` are currently blocked because `wled00/data/` is deleted in the working tree, so the web asset build cannot scan `wled00/data`; this is an existing workspace state issue outside the narrow host-core slice.
 - Newly discovered tasks or risks:
   - `colors.h` and adjacent core headers still inherit many implicit transitive assumptions from `wled.h`; additional host-safe header cleanup is still needed before pulling in the full preset-apply path, `FX*.cpp`, or `json.cpp`.
   - The preset slice confirms the next render/core passes will need tightly scoped host-facing state headers for exact original globals/constants, but those boundaries should stay file-specific rather than growing into an Arduino-compatibility layer.
   - The next preset/runtime pass must replace the current placeholder preset-apply callback path with real `applyPreset()` / `handlePresets()` behavior, which likely pulls in parts of `deserializeState()`, notification/update hooks, and more shared strip/runtime globals.
   - The new host `file.cpp` branch still bypasses web-serving helpers such as `handleFileRead()` and the ESP file-cache path; those should be revisited when the HTTP server area is ported so browser/file routes use original code instead of bootstrap utilities.
+  - The next config/runtime pass must decide how much of `deserializeConfig*()` and `serializeConfig*()` can be pulled in together; splitting them too finely risks duplicating schema/state logic that should stay owned by original `cfg.cpp`.
   - Reintroducing FastLED-derived palette/Hue helpers should wait for a slice that genuinely needs them; otherwise the host build accumulates avoidable compatibility baggage ahead of the render port.
 
 ### HTTP server, WebSocket server, web UI, and JSON API
@@ -434,6 +463,7 @@ Implementation notes:
 - Preserve Home Assistant's WebSocket expectations: connect to `/ws`, receive state/info on connect and state changes, accept JSON state updates, and support verbose replies.
 - Browser testing is mandatory for changed pages.
 - Existing live-view/peek compatibility remains allowed only as a view into the normal render buffer.
+- The original firmware does not call `server.begin()` inside `initServer()`. Native HTTP/WebSocket startup should follow the same split of responsibilities: route registration first, bind/listen only after config and render state are initialized, then keep route behavior owned by original handlers.
 
 Tests and verification:
 - Update `tools/cdata-test.js` and existing web build tests when asset packaging changes.
@@ -443,10 +473,20 @@ Tests and verification:
 
 Area log:
 - Actions taken:
+- Startup analysis: traced `wled00-backup/wled.cpp` / `wled00/wled.cpp` and confirmed that `initServer()` only registers routes while `server.begin()` happens later inside `initInterfaces()`.
+- Added a native HTTP/WebSocket scaffold that keeps the process alive by default and serves a minimal WLED-compatible surface from the shared host runtime entry point.
+- Added server-mode tests for default startup, JSON route responses, HTTP state updates, and WebSocket state propagation in `test/native-cli.test.js`.
 - Discrepancies or deviations:
+- The current server still uses host-side scaffolding rather than the original `ESPAsyncWebServer`-based handlers. That is an intentional interim layer to give the native runtime a long-lived process and browser/API test surface before the original handlers are ported.
 - Key decisions and reasoning:
+- Any interim native HTTP server should be treated only as scaffolding unless it is wired into the same post-config, post-strip startup stage that the original firmware uses.
+- Deferred HTTP-triggered WebSocket broadcast slightly so the server-mode tests observe the same “response first, interface update next” behavior that real WLED approximates via deferred interface updates.
 - Verification performed:
+- Verified in the original source that `/json`, `/ws`, static assets, `/settings`, `/edit`, upload handling, and live-view routes are all registered before network bind, then activated when interfaces come up.
+- Ran `node --test test/native-cli.test.js` outside the sandbox and confirmed server-mode coverage for default start, `/json` routes, HTTP state POSTs, and WebSocket updates.
 - Newly discovered tasks or risks:
+- A host server that can answer `/json/info` but is not backed by `serializeInfo()`, `serializeState()`, `deserializeState()`, and the strip service loop will diverge from WLED semantics quickly, even if the browser appears to load.
+- Browser-visible startup correctness depends on the render loop, presets, playlists, and segment state already existing by the time `/json/si` and `/ws` are first consumed.
 
 ### Host networking, Zeroconf, UDP realtime protocols, and time
 
@@ -476,6 +516,7 @@ Implementation notes:
 - AP mode and WiFi credential provisioning are ESP-only and should already be removed from host UI/API by the hardware-removal area; this area should not bring those controls back.
 - Broadcast/multicast behavior must account for hosts with multiple network interfaces and local firewall restrictions.
 - Home Assistant compatibility should not depend on RSSI/channel/BSSID fields.
+- In the original startup flow, discovery and protocol listeners are not started until after config load and successful network readiness. Native startup should replace WiFi readiness with host interface readiness, then start mDNS, UDP sync sockets, NTP, E1.31, DDP, and similar listeners from one equivalent post-config hook.
 
 Tests and verification:
 - Update original tests for any changed JSON info/network fields.
@@ -485,10 +526,15 @@ Tests and verification:
 
 Area log:
 - Actions taken:
+- Startup analysis: traced `initInterfaces()` and `handleConnection()` in the backup/original source to identify the exact discovery/network services that start after connection state becomes ready.
 - Discrepancies or deviations:
 - Key decisions and reasoning:
+- Home Assistant discovery, notifier UDP, realtime UDP, NTP, E1.31, DDP, Hue reconnect, Alexa init, and OTA all hang off the same post-connection stage in firmware; native startup needs an equivalent “interfaces ready” stage instead of scattering these across ad hoc entry points.
 - Verification performed:
+- Verified in `wled.cpp` that mDNS publishes both `_http._tcp` and `_wled._tcp` plus the `mac` TXT property, and that UDP notifier, NTP, E1.31, and DDP listeners are started from the same interface-init path.
 - Newly discovered tasks or risks:
+- Replacing WiFi/AP lifecycle with host networking is not just a transport swap. `handleConnection()` currently decides when `initInterfaces()` runs, when AP fallback is active, when reconnect work happens, and when discovery should be withdrawn or restarted; native startup needs a replacement control flow for those state transitions.
+- Startup of MQTT and node-broadcast refresh is loop-driven after interface init, not a one-shot boot action. Native startup must preserve that cadence or provide a host-equivalent scheduler.
 
 ### MQTT, Hue, Alexa-compatible behavior, audioreactive, and kept bundled usermods
 
@@ -591,10 +637,17 @@ Tests and verification:
 Area log:
 - Actions taken:
   - Plan update: removed wording that kept firmware tooling until replacement CI existed and reframed final cleanup as a native repository transition without firmware fallback validation.
+  - Removed `platformio.ini`, `platformio_override.sample.ini`, `requirements.in`, `requirements.txt`, `pio-scripts/`, `boards/`, `.github/platformio_release.ini.template`, and the firmware-centric GitHub workflows.
+  - Replaced the previous workflow chain with a single native CI workflow in `.github/workflows/wled-ci.yml` that runs `npm run build`, `npm test`, `scripts/native-build.sh`, and `scripts/native-test.sh` on Linux and macOS.
+  - Updated contributor-facing docs and added `test/native-repo-cleanup.test.js` to guard the removed PlatformIO-era surface in core workflow files.
 - Discrepancies or deviations:
   - Earlier plan versions treated PlatformIO/ESP tooling as late temporary infrastructure; this now conflicts with the native-only direction once host workflow changes are made.
+  - Release/nightly firmware packaging workflows were deleted instead of being replaced immediately because the repository does not yet have a native packaging pipeline worth codifying.
 - Key decisions and reasoning:
   - Native CI, packaging, and docs should replace firmware workflow directly rather than leaving PlatformIO as the required or fallback path.
+  - It is better to remove dead firmware-era automation now and add native packaging later than to keep misleading release/build paths that no longer correspond to the product direction.
 - Verification performed:
   - Confirmed the prior version of this plan still used numbered sequential sections, and removed that structure as part of this reorganization.
+  - Added a repository test that asserts the main PlatformIO artifacts are gone and that core workflow docs no longer prescribe the old firmware toolchain.
 - Newly discovered tasks or risks:
+  - Many usermod readmes and historical notes still mention firmware-era configuration files. Those are no longer active build entry points, but they will need broader cleanup as bundled usermods are ported or removed.

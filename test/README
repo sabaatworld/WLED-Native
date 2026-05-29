@@ -1,11 +1,6 @@
 
-This directory is intended for PIO Unit Testing and project tests.
+This directory contains repository tests that run through Node.js (`node --test`).
 
-Unit Testing is a software testing method by which individual units of
-source code, sets of one or more MCU program modules together with associated
-control data, usage procedures, and operating procedures, are tested to
-determine whether they are fit for use. Unit testing finds problems early
-in the development cycle.
-
-More information about PIO Unit Testing:
-- https://docs.platformio.org/page/plus/unit-testing.html
+Current coverage includes the web asset build helpers and the native host
+runtime smoke/integration checks. Keep new tests wired into `npm test` rather
+than adding a separate side runner.

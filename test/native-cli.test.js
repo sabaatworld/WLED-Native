@@ -17,6 +17,58 @@ function runNativeCommand(args) {
   });
 }
 
+async function startNativeServer(configDir, extraArgs = []) {
+  const child = childProcess.spawn(nativeRunScript, ['--config-dir', configDir, '--host', '127.0.0.1', '--port', '0', ...extraArgs], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+
+  const listeningUrl = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timed out waiting for native server startup.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    }, 5000);
+
+    function checkOutput() {
+      const match = stdout.match(/^Listening on: (http:\/\/.+)$/m);
+      if (match) {
+        clearTimeout(timeout);
+        resolve(match[1].trim());
+      }
+    }
+
+    child.stdout.on('data', checkOutput);
+    child.on('exit', (code, signal) => {
+      clearTimeout(timeout);
+      reject(new Error(`Native server exited before startup (code=${code}, signal=${signal}).\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    });
+    checkOutput();
+  });
+
+  return {
+    child,
+    listeningUrl,
+    getStdout: () => stdout,
+    getStderr: () => stderr,
+    async stop() {
+      if (child.exitCode !== null) return;
+      child.kill('SIGTERM');
+      await new Promise((resolve) => child.once('exit', resolve));
+    }
+  };
+}
+
 function extractField(output, label) {
   const match = output.match(new RegExp(`^${label}: (.+)$`, 'm'));
   assert.ok(match, `Expected ${label} in output:\n${output}`);
@@ -70,6 +122,37 @@ function fadeColor(color, amount, video) {
   return (rbScaled | wgScaled) >>> 0;
 }
 
+function addColor(color1, color2, preserveColorRatio) {
+  if (color1 === 0) return color2 >>> 0;
+  if (color2 === 0) return color1 >>> 0;
+
+  const twoChannelMask = 0x00FF00FF;
+  let rb = (color1 & twoChannelMask) + (color2 & twoChannelMask);
+  let wg = (((color1 >>> 8) & twoChannelMask) + ((color2 >>> 8) & twoChannelMask)) >>> 0;
+
+  if (preserveColorRatio) {
+    const overflow = (rb | wg) & 0x01000100;
+    if (overflow) {
+      const r = rb >>> 16;
+      const b = rb & 0xFFFF;
+      const w = wg >>> 16;
+      const g = wg & 0xFFFF;
+      let maxValue = Math.max(r, g, b, w);
+      const scale = ((255 << 8) / maxValue) >>> 0;
+      rb = (((rb * scale) >>> 8) & twoChannelMask) >>> 0;
+      wg = ((wg * scale) & (~twoChannelMask >>> 0)) >>> 0;
+    } else {
+      wg = (wg << 8) >>> 0;
+    }
+  } else {
+    rb |= (((rb & 0x01000100) - ((rb >>> 8) & 0x00010001)) & 0x00FF00FF) >>> 0;
+    wg |= (((wg & 0x01000100) - ((wg >>> 8) & 0x00010001)) & 0x00FF00FF) >>> 0;
+    wg = (wg << 8) >>> 0;
+  }
+
+  return (rb | wg) >>> 0;
+}
+
 function formatColor(color) {
   return `0x${color.toString(16).toUpperCase().padStart(8, '0')}`;
 }
@@ -91,17 +174,25 @@ test('native wrapper prints WLED help text', () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Usage: .*WLED/i);
   assert.match(result.stdout, /--config-dir/);
+  assert.match(result.stdout, /--exit-after-bootstrap/);
   assert.match(result.stdout, /--host/);
   assert.match(result.stdout, /--port/);
   assert.match(result.stdout, /--log-level/);
   assert.match(result.stdout, /--version/);
   assert.match(result.stdout, /--blend-color/);
+  assert.match(result.stdout, /--add-color/);
   assert.match(result.stdout, /--fade-color/);
   assert.match(result.stdout, /--prng-seq/);
   assert.match(result.stdout, /--playlist-run/);
   assert.match(result.stdout, /--init-presets/);
   assert.match(result.stdout, /--preset-name/);
   assert.match(result.stdout, /--delete-preset/);
+  assert.match(result.stdout, /--backup-config/);
+  assert.match(result.stdout, /--restore-config/);
+  assert.match(result.stdout, /--verify-config/);
+  assert.match(result.stdout, /--reset-config/);
+  assert.match(result.stdout, /--has-config-backup/);
+  assert.match(result.stdout, /--verify-secrets/);
 });
 
 test('native wrapper prints WLED version', () => {
@@ -114,7 +205,7 @@ test('native wrapper resolves config dir and persists an instance id', () => {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
 
   try {
-    const firstResult = runNativeCommand(['--config-dir', configDir]);
+    const firstResult = runNativeCommand(['--config-dir', configDir, '--exit-after-bootstrap']);
     assert.equal(firstResult.status, 0, firstResult.stderr || firstResult.stdout);
     assert.match(firstResult.stdout, /WLED host runtime bootstrap/);
     assert.equal(extractField(firstResult.stdout, 'Config root'), configDir);
@@ -127,10 +218,111 @@ test('native wrapper resolves config dir and persists an instance id', () => {
     assert.deepEqual(readJsonFile(path.join(configDir, 'presets.json')), { '0': {} });
     assert.deepEqual(readJsonFile(path.join(configDir, 'tmp.json')), { '0': {} });
 
-    const secondResult = runNativeCommand(['--config-dir', configDir]);
+    const secondResult = runNativeCommand(['--config-dir', configDir, '--exit-after-bootstrap']);
     assert.equal(secondResult.status, 0, secondResult.stderr || secondResult.stdout);
     assert.equal(extractField(secondResult.stdout, 'Instance ID'), firstInstanceId);
   } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper serves HTTP routes in default server mode', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  try {
+    server = await startNativeServer(configDir);
+
+    const indexResponse = await fetch(`${server.listeningUrl}/`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(indexResponse.status, 200);
+    assert.match(await indexResponse.text(), /WLED/i);
+
+    const infoResponse = await fetch(`${server.listeningUrl}/json/info`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(infoResponse.status, 200);
+    const info = await infoResponse.json();
+    assert.equal(info.brand, 'WLED');
+    assert.equal(info.product, 'WLED');
+    assert.equal(info.arch, 'native');
+    assert.equal(info.mac, fs.readFileSync(path.join(configDir, 'instance-id'), 'utf8').trim());
+
+    const combinedResponse = await fetch(`${server.listeningUrl}/json`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(combinedResponse.status, 200);
+    const combined = await combinedResponse.json();
+    assert.equal(combined.info.mac, info.mac);
+    assert.equal(combined.state.on, true);
+    assert.equal(combined.state.seg[0].fx, 0);
+  } finally {
+    if (server) await server.stop();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper accepts HTTP and WebSocket state updates in server mode', async () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  let server;
+  let socket;
+  try {
+    server = await startNativeServer(configDir);
+    socket = new WebSocket(server.listeningUrl.replace('http://', 'ws://') + '/ws');
+
+    const messages = [];
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for WebSocket open')), 5000);
+      socket.addEventListener('message', (event) => {
+        messages.push(JSON.parse(event.data));
+      }, { once: true });
+      socket.addEventListener('open', () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+      socket.addEventListener('error', (event) => {
+        clearTimeout(timeout);
+        reject(event.error || new Error('WebSocket error'));
+      }, { once: true });
+    });
+
+    const postResponse = await fetch(`${server.listeningUrl}/json/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: false, bri: 42 }),
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(postResponse.status, 200);
+
+    const postedState = await postResponse.json();
+    assert.equal(postedState.state.on, false);
+    assert.equal(postedState.state.bri, 42);
+
+    const wsMessage = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Timed out waiting for WebSocket update. Messages: ${JSON.stringify(messages)}`)), 5000);
+      socket.addEventListener('message', (event) => {
+        clearTimeout(timeout);
+        resolve(JSON.parse(event.data));
+      }, { once: true });
+    });
+    assert.equal(wsMessage.state.on, false);
+    assert.equal(wsMessage.state.bri, 42);
+
+    socket.send(JSON.stringify({ on: true, bri: 99 }));
+    const echoedMessage = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for WebSocket echo update')), 5000);
+      socket.addEventListener('message', (event) => {
+        clearTimeout(timeout);
+        resolve(JSON.parse(event.data));
+      }, { once: true });
+    });
+    assert.equal(echoedMessage.state.on, true);
+    assert.equal(echoedMessage.state.bri, 99);
+
+    const finalStateResponse = await fetch(`${server.listeningUrl}/json/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(finalStateResponse.status, 200);
+    const finalState = await finalStateResponse.json();
+    assert.equal(finalState.on, true);
+    assert.equal(finalState.bri, 99);
+  } finally {
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    if (server) await server.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 });
@@ -342,6 +534,20 @@ test('native wrapper blends colors through WLED color core', () => {
   }
 });
 
+test('native wrapper adds colors through WLED color core', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    const result = runNativeCommand(['--config-dir', configDir, '--add-color', '80402010:40208004:1']);
+    const expected = formatColor(addColor(0x10804020, 0x04402080, true));
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, new RegExp(`Added color: ${expected}`));
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
 test('native wrapper fades colors through WLED color core', () => {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
 
@@ -426,6 +632,45 @@ test('native wrapper uses original preset-file logic for init, name lookup, and 
       1: { n: 'Sunrise' },
       2: {}
     });
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('native wrapper uses original cfg helpers for backup, restore, verify, reset, and secret validation', () => {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wled-native-'));
+
+  try {
+    fs.writeFileSync(path.join(configDir, 'cfg.json'), '{"version":1}\n', 'utf8');
+    fs.writeFileSync(path.join(configDir, 'wsec.json'), '{"token":"secret"}\n', 'utf8');
+
+    const backupResult = runNativeCommand(['--config-dir', configDir, '--backup-config']);
+    assert.equal(backupResult.status, 0, backupResult.stderr || backupResult.stdout);
+    assert.match(backupResult.stdout, /Backed up config: \/cfg\.json/);
+
+    const hasBackupResult = runNativeCommand(['--config-dir', configDir, '--has-config-backup']);
+    assert.equal(hasBackupResult.status, 0, hasBackupResult.stderr || hasBackupResult.stdout);
+    assert.match(hasBackupResult.stdout, /Config backup exists: \/bkp\.cfg\.json/);
+
+    const verifyConfigResult = runNativeCommand(['--config-dir', configDir, '--verify-config']);
+    assert.equal(verifyConfigResult.status, 0, verifyConfigResult.stderr || verifyConfigResult.stdout);
+    assert.match(verifyConfigResult.stdout, /Valid config file: \/cfg\.json/);
+
+    const verifySecretsResult = runNativeCommand(['--config-dir', configDir, '--verify-secrets']);
+    assert.equal(verifySecretsResult.status, 0, verifySecretsResult.stderr || verifyConfigResult.stdout);
+    assert.match(verifySecretsResult.stdout, /Valid secrets file: \/wsec\.json/);
+
+    fs.writeFileSync(path.join(configDir, 'cfg.json'), '{"version":2}\n', 'utf8');
+    const restoreResult = runNativeCommand(['--config-dir', configDir, '--restore-config']);
+    assert.equal(restoreResult.status, 0, restoreResult.stderr || restoreResult.stdout);
+    assert.match(restoreResult.stdout, /Restored config: \/cfg\.json/);
+    assert.equal(fs.readFileSync(path.join(configDir, 'cfg.json'), 'utf8'), '{"version":1}\n');
+
+    const resetResult = runNativeCommand(['--config-dir', configDir, '--reset-config']);
+    assert.equal(resetResult.status, 0, resetResult.stderr || resetResult.stdout);
+    assert.match(resetResult.stdout, /Reset config file: \/cfg\.json/);
+    assert.equal(fs.existsSync(path.join(configDir, 'cfg.json')), false);
+    assert.equal(fs.existsSync(path.join(configDir, 'rst.cfg.json')), true);
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
   }

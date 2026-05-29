@@ -14,7 +14,7 @@ trap cleanup EXIT
 "${repo_root}/scripts/native-build.sh"
 "${repo_root}/scripts/native-run.sh" --help
 "${repo_root}/scripts/native-run.sh" --version
-"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}"
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --exit-after-bootstrap
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --resolve-path "/cfg.json"
 printf '{"cli":true}\n' > "${tmp_config_dir}/cli-test.json"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --read-file "cli-test.json"
@@ -29,6 +29,7 @@ printf '{"cli":false}\n' > "${tmp_config_dir}/cli-test.json"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --list-files
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --delete-file "cli-test-renamed.json"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --blend-color "FF0000:0000FF:128"
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --add-color "80402010:40208004:1"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --fade-color "112233:128:1"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --prng-seq "4660:4"
 printf '%s\n' '{"ps":[11,22,33],"dur":[1,1,1],"transition":[5,6,7],"repeat":1}' > "${tmp_config_dir}/playlist.json"
@@ -38,3 +39,12 @@ rm -f "${tmp_config_dir}/presets.json"
 printf '%s\n' '{"0":{},"1":{"n":"Sunrise"},"2":{"n":"Evening"}}' > "${tmp_config_dir}/presets.json"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --preset-name "2"
 "${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --delete-preset "2"
+printf '%s\n' '{"version":1}' > "${tmp_config_dir}/cfg.json"
+printf '%s\n' '{"token":"secret"}' > "${tmp_config_dir}/wsec.json"
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --backup-config
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --has-config-backup
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --verify-config
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --verify-secrets
+printf '%s\n' '{"version":2}' > "${tmp_config_dir}/cfg.json"
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --restore-config
+"${repo_root}/scripts/native-run.sh" --config-dir "${tmp_config_dir}" --reset-config

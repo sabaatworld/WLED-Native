@@ -6,8 +6,8 @@
 #include <string>
 
 #include "wled_host_file.h"
-#include "wled_host_core.h"
 #include "wled_host_storage.h"
+#include "colors.h"
 
 using String = std::string;
 

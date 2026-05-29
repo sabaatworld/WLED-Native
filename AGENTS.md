@@ -1,7 +1,8 @@
 # AGENTS.md — WLED AI Coding Agent & AI Code Review Reference
 
-WLED is C++ firmware for ESP32/ESP8266 microcontrollers controlling addressable LEDs,
-with a web UI (HTML/JS/CSS). Built with PlatformIO (Arduino framework) and Node.js tooling.
+WLED is being migrated into a native macOS/Linux application built from the
+original `wled00/` source tree, with a web UI (HTML/JS/CSS), a CMake-based
+host build, and Node.js tooling.
 
 See also: `.github/copilot-instructions.md`, `.github/agent-build.instructions.md`,
 `docs/cpp.instructions.md`, `docs/web.instructions.md`, `docs/cicd.instructions.md`.
@@ -15,15 +16,14 @@ Always reference these instructions - including coding guidelines in `docs/` - f
 | `npm ci` | Install Node.js deps (required first) | 30s |
 | `npm run build` | Build web UI into `wled00/html_*.h` / `wled00/js_*.h` | 30s |
 | `npm test` | Run test suite (Node.js built-in `node --test`) | 2 min |
-| `scripts/native-build.sh` | Configure and build the experimental native host CLI in `build/native/` | 2 min |
-| `scripts/native-run.sh --help` | Smoke-test the native host CLI entry point | 30s |
-| `scripts/native-test.sh` | Build plus CLI smoke tests for the native host path | 2 min |
+| `scripts/native-build.sh` | Configure and build the native host runtime in `build/native/` | 2 min |
+| `scripts/native-run.sh --help` | Print native host runtime usage | 30s |
+| `scripts/native-run.sh --exit-after-bootstrap --config-dir <dir>` | Smoke-test bootstrap/status reporting without starting the server | 30s |
+| `scripts/native-test.sh` | Build plus native CLI smoke tests | 2 min |
 | `npm run dev` | Watch mode — auto-rebuilds web UI on changes | continuous |
-| `pio run -e esp32dev` | Build firmware (ESP32, most common target) | 5 min |
-| `pio run -e nodemcuv2` | Build firmware (ESP8266) | 5 min |
 
-**Always run `npm ci && npm run build` before `pio run`.** The web UI build generates
-required C headers for firmware compilation.
+Run `npm ci` first on a fresh checkout. `npm run build` generates the web
+headers used by the native runtime and test flow.
 
 For native-port tasks, use `Native-Port-Plan.md` as the source of truth and prefer
 the `scripts/native-*.sh` wrappers over inventing a separate native workflow document.
@@ -38,19 +38,15 @@ npm test                   # runs all tests via `node --test`
 node --test tools/cdata-test.js  # run just that file directly
 ```
 
-There are no C++ unit tests. Firmware is validated by successful compilation across
-target environments. Always build after code changes: `pio run -e esp32dev`.
-
-### Common Firmware Environments
-
-`esp32dev`, `nodemcuv2`, `esp8266_2m`, `esp32c3dev`, `esp32s3dev_8MB_opi`, `lolin_s2_mini`
+There are no standalone C++ unit tests yet. Native validation currently runs
+through `npm test`, `scripts/native-build.sh`, and `scripts/native-test.sh`.
 
 ### Recovery / Troubleshooting
 
 ```sh
 npm run build -- -f              # force web UI rebuild
 rm -f wled00/html_*.h wled00/js_*.h && npm run build  # clean + rebuild UI
-pio run --target clean           # clean PlatformIO build artifacts
+rm -rf build/native              # clean native build artifacts
 rm -rf node_modules && npm ci    # reinstall Node.js deps
 ```
 
@@ -62,8 +58,8 @@ wled00/              # Main firmware source (C++)
   html_*.h, js_*.h   # Auto-generated (NEVER edit or commit)
   src/               # Sub-modules: fonts, bundled dependencies (ArduinoJSON)
 usermods/            # Community usermods (each has library.json + .cpp/.h)
-platformio.ini       # Build configuration and environments
-pio-scripts/         # PlatformIO build scripts (Python)
+CMakeLists.txt       # Native host build configuration
+scripts/             # Native build/run/test wrappers
 tools/               # Node.js build tools (cdata.js) and tests
 docs/                # Coding convention docs
 .github/workflows/   # CI/CD (GitHub Actions)
@@ -125,7 +121,7 @@ or inline `<repo>/.codex/config.toml`; keep this repo on the `hooks.json` form o
 - Keep hook commands resolved from `git rev-parse --show-toplevel`, because Codex
   may be started from a subdirectory.
 - The native-port `UserPromptSubmit` hook injects process reminders when prompts
-  mention native/macOS/Linux/ESP/PlatformIO work.
+  mention native/macOS/Linux/ESP migration work.
 - The native-port `Stop` hook asks Codex to continue when native-port-related
   changes are about to finish without a `Native-Port-Plan.md` update.
 - Hooks are guardrails, not a substitute for the task process above. If a hook
@@ -281,7 +277,8 @@ A unique ID (registered in `wled00/const.h` and overriding `getId()`) is **only 
 If none of the above apply, the usermod may omit `getId()` (or return the default `USERMOD_ID_UNSPECIFIED`) and does **not** need an entry in `const.h`.
 
 - Add usermod IDs to `wled00/const.h` **only when a unique ID is required** (see above)
-- Activate via `custom_usermods` in platformio build config
+- Keep usermod activation/build guidance aligned with `Native-Port-Plan.md` as
+  bundled-usermod cleanup progresses.
 - Base new usermods on `usermods/EXAMPLE/` (never edit the example directly)
 - Store repeated strings as `static const char[] PROGMEM`
 
@@ -289,9 +286,10 @@ If none of the above apply, the usermod may omit `getId()` (or return the defaul
 
 CI runs on every push/PR via GitHub Actions (`.github/workflows/wled-ci.yml`):
 
-1. `npm test` (web UI build validation)
-2. Firmware compilation for all default environments (~22 targets)
-3. Post-link validation of usermod linkage (`validate_modules.py`)
+1. `npm run build`
+2. `npm test`
+3. `scripts/native-build.sh`
+4. `scripts/native-test.sh`
 
 No automated linting is configured. Match existing code style in files you edit.
 
@@ -302,8 +300,6 @@ No automated linting is configured. Match existing code style in files you edit.
 - Never edit or commit auto-generated `wled00/html_*.h` / `wled00/js_*.h`.
 - When updating an existing PR, retain the original description. Only modify it to ensure technical accuracy. Add change logs after the existing description.
 - No force-push on open PRs!
-- Important: **Changes to `platformio.ini` require maintainer approval**!
-- PRs should respect `.gitignore` and not upload files like  `platformio_override.ini`. PR authors may add buildenv examples for custom boards into `platformio_override.ini.sample`.
 - Remove dead/unused code — justify or delete it.
 - Verify feature-flag spelling exactly (misspellings are silently ignored by preprocessor).
 - Provide references when making analyses or recommendations. Support factual claims with verifiable citations, references or concrete evidence; **never fabricate citations**.

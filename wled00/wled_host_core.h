@@ -8,12 +8,6 @@
 
 using byte = uint8_t;
 
-#ifndef BLACK
-  #define BLACK (uint32_t)0x000000
-#endif
-
-#define RGBW32(r,g,b,w) (uint32_t((byte(w) << 24) | (byte(r) << 16) | (byte(g) << 8) | (byte(b))))
-
 uint32_t hw_random();
 uint32_t hw_random(uint32_t upperlimit);
 int32_t hw_random(int32_t lowerlimit, int32_t upperlimit);
@@ -31,9 +25,6 @@ inline uint8_t hw_random8(uint32_t lowerlimit, uint32_t upperlimit) {
 }
 
 uint8_t get_random_wheel_index(uint8_t pos);
-uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend);
-uint32_t color_fade(uint32_t color, uint8_t amount, bool video = false);
-bool colorFromHexString(byte* rgb, const char* in);
 
 #endif
 

@@ -1,6 +1,9 @@
+#include "colors.h"
+
+#ifdef ARDUINO
+
 #include "wled.h"
 #include "fcn_declare.h"
-#include "colors.h"
 
 /*
  * Color conversion & utility methods
@@ -680,3 +683,105 @@ uint32_t NeoGammaWLEDMethod::inverseGamma32(uint32_t color)
   b = gammaT_inv[b];
   return RGBW32(r, g, b, w);
 }
+
+#else
+
+#include <cstdlib>
+#include <cstring>
+
+/*
+ * Host-native subset of the original color helpers.
+ * Keep these implementations in colors.cpp so the native port uses the original
+ * WLED source file instead of maintaining a parallel host-only color module.
+ */
+uint32_t color_blend(uint32_t color1, uint32_t color2, uint8_t blend) {
+  const uint32_t TWO_CHANNEL_MASK = 0x00FF00FF;
+  uint32_t rb1 = color1 & TWO_CHANNEL_MASK;
+  uint32_t wg1 = (color1 >> 8) & TWO_CHANNEL_MASK;
+  uint32_t rb2 = color2 & TWO_CHANNEL_MASK;
+  uint32_t wg2 = (color2 >> 8) & TWO_CHANNEL_MASK;
+  uint32_t rb3 = ((((rb1 << 8) | rb2) + (rb2 * blend) - (rb1 * blend)) >> 8) & TWO_CHANNEL_MASK;
+  uint32_t wg3 = ((((wg1 << 8) | wg2) + (wg2 * blend) - (wg1 * blend))) & ~TWO_CHANNEL_MASK;
+  return rb3 | wg3;
+}
+
+uint32_t color_add(uint32_t c1, uint32_t c2, bool preserveCR)
+{
+  if (c1 == BLACK) return c2;
+  if (c2 == BLACK) return c1;
+  const uint32_t TWO_CHANNEL_MASK = 0x00FF00FF;
+  uint32_t rb = (c1 & TWO_CHANNEL_MASK) + (c2 & TWO_CHANNEL_MASK);
+  uint32_t wg = ((c1 >> 8) & TWO_CHANNEL_MASK) + ((c2 >> 8) & TWO_CHANNEL_MASK);
+
+  if (preserveCR) {
+    uint32_t overflow = (rb | wg) & 0x01000100;
+    if (overflow) {
+      uint32_t r = rb >> 16;
+      uint32_t b = rb & 0xFFFF;
+      uint32_t w = wg >> 16;
+      uint32_t g = wg & 0xFFFF;
+      uint32_t maxval = (r > g) ? ((r > b) ? r : b) : ((g > b) ? g : b);
+      maxval = (w > maxval) ? w : maxval;
+      const uint32_t scale = (uint32_t(255) << 8) / maxval;
+      rb = ((rb * scale) >> 8) & TWO_CHANNEL_MASK;
+      wg = (wg * scale) & ~TWO_CHANNEL_MASK;
+    } else {
+      wg <<= 8;
+    }
+  } else {
+    rb |= ((rb & 0x01000100) - ((rb >> 8) & 0x00010001)) & 0x00FF00FF;
+    wg |= ((wg & 0x01000100) - ((wg >> 8) & 0x00010001)) & 0x00FF00FF;
+    wg <<= 8;
+  }
+  return rb | wg;
+}
+
+uint32_t color_fade(uint32_t c1, uint8_t amount, bool video) {
+  if (c1 == BLACK || amount == 0) return 0;
+  if (amount == 255) return c1;
+  const uint32_t TWO_CHANNEL_MASK = 0x00FF00FF;
+  uint32_t rb = c1 & TWO_CHANNEL_MASK;
+  uint32_t wg = (c1 >> 8) & TWO_CHANNEL_MASK;
+  uint32_t rbScaled;
+  uint32_t wgScaled;
+
+  if (video) {
+    rbScaled = ((rb * amount + 0x007F007F) >> 8) & TWO_CHANNEL_MASK;
+    wgScaled = (wg * amount + 0x007F007F) & ~TWO_CHANNEL_MASK;
+    uint8_t r = byte(rb >> 16), g = byte(wg), b = byte(rb), w = byte(wg >> 16);
+    uint8_t maxc = (r > g) ? ((r > b) ? r : b) : ((g > b) ? g : b);
+    maxc = (maxc >> 2) + 1;
+    rbScaled |= r > maxc ? 0x00010000 : 0;
+    wgScaled |= g > maxc ? 0x00000100 : 0;
+    rbScaled |= b > maxc ? 0x00000001 : 0;
+    wgScaled |= w ? 0x01000000 : 0;
+  } else {
+    rbScaled = ((rb * (amount + 1)) >> 8) & TWO_CHANNEL_MASK;
+    wgScaled = (wg * (amount + 1)) & ~TWO_CHANNEL_MASK;
+  }
+
+  return rbScaled | wgScaled;
+}
+
+bool colorFromHexString(byte* rgb, const char* in) {
+  if (in == nullptr) return false;
+  size_t inputSize = strnlen(in, 9);
+  if (inputSize != 6 && inputSize != 8) return false;
+
+  uint32_t c = strtoul(in, nullptr, 16);
+
+  if (inputSize == 6) {
+    rgb[0] = (c >> 16);
+    rgb[1] = (c >> 8);
+    rgb[2] = c;
+    rgb[3] = 0;
+  } else {
+    rgb[0] = (c >> 24);
+    rgb[1] = (c >> 16);
+    rgb[2] = (c >> 8);
+    rgb[3] = c;
+  }
+  return true;
+}
+
+#endif // ARDUINO

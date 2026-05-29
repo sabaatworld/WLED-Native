@@ -1,6 +1,26 @@
 #pragma once
 #ifndef WLED_COLORS_H
 #define WLED_COLORS_H
+
+#ifndef ARDUINO
+
+#include <cstdint>
+
+using byte = uint8_t;
+
+#ifndef BLACK
+  #define BLACK (uint32_t)0x000000
+#endif
+
+#define RGBW32(r,g,b,w) (uint32_t((byte(w) << 24) | (byte(r) << 16) | (byte(g) << 8) | (byte(b))))
+
+uint32_t color_blend(uint32_t c1, uint32_t c2, uint8_t blend);
+uint32_t color_add(uint32_t c1, uint32_t c2, bool preserveCR = false);
+uint32_t color_fade(uint32_t c1, uint8_t amount, bool video = false);
+bool colorFromHexString(byte* rgb, const char* in);
+
+#else
+
 #include <vector>
 #include "src/dependencies/fastled_slim/fastled_slim.h"
 /*
@@ -218,5 +238,7 @@ inline CHSV32& CHSV32::operator= (const CRGBW& rgb) { // assignment from 32bit r
 inline CRGBW hsv2rgb(const CHSV32& hsv) { return CRGBW(hsv); }
 inline void  hsv2rgb(const CHSV32& hsv, CRGBW& rgb) { rgb = CRGBW(hsv); }
 inline void  hsv2rgb(const CHSV32& hsv, uint32_t& rgb) { rgb = CRGBW(hsv).color32; }
+
+#endif // ARDUINO
 
 #endif

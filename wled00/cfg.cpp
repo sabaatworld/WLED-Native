@@ -1,3 +1,5 @@
+#ifdef ARDUINO
+
 #include "wled.h"
 #include "wled_ethernet.h"
 
@@ -1366,3 +1368,60 @@ void serializeConfigSec() {
   f.close();
   releaseJSONBufferLock();
 }
+
+#else
+
+#include "wled_host_cfg.h"
+
+#include <filesystem>
+
+#include "wled_host_file.h"
+#include "wled_host_storage.h"
+
+namespace {
+
+constexpr const char sCfgJson[] = "/cfg.json";
+constexpr const char sWsecJson[] = "/wsec.json";
+
+std::string makeResetPath(const char* logicalPath) {
+  std::string trimmed(logicalPath);
+  while (!trimmed.empty() && trimmed.front() == '/') trimmed.erase(trimmed.begin());
+  return "/rst." + trimmed;
+}
+
+} // namespace
+
+bool backupConfig() {
+  return backupFile(sCfgJson);
+}
+
+bool restoreConfig() {
+  return restoreFile(sCfgJson);
+}
+
+bool verifyConfig() {
+  return validateJsonFile(sCfgJson);
+}
+
+bool configBackupExists() {
+  return checkBackupExists(sCfgJson);
+}
+
+void resetConfig() {
+  const HostStorageLayout* layout = getActiveHostStorageLayout();
+  if (!layout || !std::filesystem::exists(layout->cfgFile)) return;
+
+  std::string error;
+  std::filesystem::path resetPath;
+  const std::string resetLogicalPath = makeResetPath(sCfgJson);
+  if (!resolveHostStoragePath(*layout, resetLogicalPath, resetPath, error)) return;
+
+  std::error_code renameError;
+  std::filesystem::rename(layout->cfgFile, resetPath, renameError);
+}
+
+bool verifyConfigSec() {
+  return validateJsonFile(sWsecJson);
+}
+
+#endif

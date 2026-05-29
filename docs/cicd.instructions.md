@@ -21,7 +21,7 @@ applyTo: ".github/workflows/*.yml,.github/workflows/*.yaml"
 ### Triggers
 
 - Declare `on:` triggers explicitly; avoid bare `on: push` without branch filters on long-running or expensive jobs
-- Prefer `workflow_call` for shared build logic (see `build.yml`) to avoid duplicating steps across workflows
+- Prefer `workflow_call` only when there is a real shared native workflow to factor out
 - Document scheduled triggers (`cron:`) with a human-readable comment:
 
 ```yaml
@@ -32,7 +32,7 @@ schedule:
 ### Jobs
 
 - Express all inter-job dependencies with `needs:` — never rely on implicit ordering
-- Use job `outputs:` + step `id:` to pass structured data between jobs (see `get_default_envs` in `build.yml`)
+- Use job `outputs:` + step `id:` to pass structured data between jobs when a workflow needs cross-job coordination
 - Set `fail-fast: false` on matrix builds so that a single failing environment does not cancel others
 
 ### Runners
@@ -52,18 +52,16 @@ schedule:
 
 - Always cache package managers and build tool directories when the job installs dependencies:
   ```yaml
-  - uses: actions/cache@v4
+  - uses: actions/setup-node@v4
     with:
-      path: ~/.cache/pip
-      key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-      restore-keys: |
-        ${{ runner.os }}-pip-
+      cache: 'npm'
+      node-version-file: '.nvmrc'
   ```
 - Include the environment name or a relevant identifier in cache keys when building multiple targets
 
 ### Artifacts
 
-- Name artifacts with enough context to be unambiguous (e.g., `firmware-${{ matrix.environment }}`)
+- Name artifacts with enough context to be unambiguous (for example, `wled-native-macos`)
 - Avoid uploading artifacts that will never be consumed downstream
 
 <!-- HUMAN_ONLY_END -->
